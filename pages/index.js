@@ -14,7 +14,7 @@ export default function Home() {
         {/* Short Description */}
         <p style={styles.description}>
           A simple platform for exploring machine learning concepts, resources,
-          and tools — all in one place. Sign up to get started on your ML journey.
+          and tools all in one place. Sign up to get started on your ML journey.
         </p>
 
         {/* Button that goes to the login page */}
@@ -70,5 +70,6 @@ const styles = {
     fontSize: '1rem',
     cursor: 'pointer',
     fontWeight: '600',
+    border-style: 'solid',
   },
 };
