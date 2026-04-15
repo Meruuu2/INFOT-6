@@ -9,7 +9,7 @@ export default function Home() {
       <div style={styles.card}>
 
         {/* App Title */}
-        <h1 style={styles.title}>🤖 Machine Learning Hub</h1>
+        <h1 style={styles.title}> Machine Learning Hub</h1>
 
         {/* Short Description */}
         <p style={styles.description}>
