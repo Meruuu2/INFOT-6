@@ -37,7 +37,16 @@ export default function Auth() {
     }
     setLoading(false);
   };
-
+            // auth.js - Inside handleSignUp
+  if (error) {
+   setIsError(true);
+   setMessage(error.message);
+  } else {
+   setIsError(false);
+   setMessage('Sign-up successful! Redirecting to dashboard...');
+  // Add this line so they don't have to log in manually after signing up
+  setTimeout(() => router.push('/dashboard'), 1500); 
+}
   // --- Updated Login Function ---
   const handleLogin = async () => {
     if (!email || !password) {

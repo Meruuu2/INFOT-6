@@ -22,21 +22,21 @@ export default function Dashboard() {
   // 2. Fetch articles from the database
   // dashboard.js - Updated fetchArticles query
   async function fetchArticles() {
-    const { data, error } = await supabase
-      .from('articles')
-      .select(`
-        *,
-        author:author_id (full_name, avatar_url) 
-      `) // Changed 'profiles' to 'author:author_id' to match your DB logic
-      .order('created_at', { ascending: false });
+  const { data, error } = await supabase
+    .from('articles')
+    .select(`
+      *,
+      author:author_id (full_name, avatar_url)
+    `) // Changed 'profiles' to 'author:author_id'
+    .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching articles:', error);
-    } else {
-      setArticles(data);
-    }
-    setLoading(false);
+  if (error) {
+    console.error('Error fetching articles:', error);
+  } else {
+    setArticles(data || []); // Ensure it's an array
   }
+  setLoading(false);
+}
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -65,23 +65,31 @@ export default function Dashboard() {
       <div className="max-w-4xl mx-auto space-y-6">
         <h2 className="text-xl font-semibold border-b border-slate-700 pb-2">Latest Machine Learning Resources</h2>
         
-        {articles.length === 0 ? (
+        s.length === 0 ? (
           <div className="bg-slate-800 p-10 rounded-xl text-center border border-dashed border-slate-600">
             <p className="text-slate-400">No articles found in the database.</p>
             <p className="text-xs mt-2 text-slate-500">Go to Supabase Table Editor and add a row to "articles" to see it here!</p>
           </div>
         ) : (
-          articles.map((article) => (
-            <div key={article.id} className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center font-bold">
-                  {article.profiles?.full_name?.charAt(0) || 'U'}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-white">{article.profiles?.full_name || 'Anonymous User'}</p>
-                  <p className="text-xs text-slate-500">{new Date(article.created_at).toLocaleDateString()}</p>
-                </div>
-              </div>
+          {articles.map((article) => (
+  <div key={article.id} className="...">
+    <div className="flex items-center gap-3 mb-4">
+      <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center font-bold">
+        {/* FIX: Use article.author instead of article.profiles */}
+        {article.author?.full_name?.charAt(0) || 'U'}
+      </div>
+      <div>
+        <p className="text-sm font-medium text-white">
+          {article.author?.full_name || 'Anonymous User'}
+        </p>
+        <p className="text-xs text-slate-500">
+          {new Date(article.created_at).toLocaleDateString()}
+        </p>
+      </div>
+    </div>
+    {/* ... rest of your code */}
+  </div>
+))}
 
               <h3 className="text-xl font-bold text-white mb-2">{article.title}</h3>
               <p className="text-slate-400 leading-relaxed mb-6">
