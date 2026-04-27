@@ -87,9 +87,10 @@ export default function Dashboard() {
                 {article.content}
               </p>
 
-              {/* THE SOCIAL BAR COMPONENT */}
+              {/* dashboard.js - Change this line */}
               <div className="border-t border-slate-700 pt-4">
-                <SocialBar articleId={article.id} />
+              {/* FIX: Pass the whole article object, not just the ID */}
+              <SocialBar article={article} />
               </div>
             </div>
           ))
