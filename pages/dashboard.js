@@ -65,42 +65,32 @@ export default function Dashboard() {
       <div className="max-w-4xl mx-auto space-y-6">
         <h2 className="text-xl font-semibold border-b border-slate-700 pb-2">Latest Machine Learning Resources</h2>
         
-        s.length === 0 ? (
+        {articles.length === 0 ? (
           <div className="bg-slate-800 p-10 rounded-xl text-center border border-dashed border-slate-600">
             <p className="text-slate-400">No articles found in the database.</p>
             <p className="text-xs mt-2 text-slate-500">Go to Supabase Table Editor and add a row to "articles" to see it here!</p>
           </div>
         ) : (
-          {articles.map((article) => (
-  <div key={article.id} className="...">
-    <div className="flex items-center gap-3 mb-4">
-      <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center font-bold">
-        {/* FIX: Use article.author instead of article.profiles */}
-        {article.author?.full_name?.charAt(0) || 'U'}
-      </div>
-      <div>
-        <p className="text-sm font-medium text-white">
-          {article.author?.full_name || 'Anonymous User'}
-        </p>
-        <p className="text-xs text-slate-500">
-          {new Date(article.created_at).toLocaleDateString()}
-        </p>
-      </div>
-    </div>
-    {/* ... rest of your code */}
-  </div>
-))}
+            articles.map((article) => (
+            <div key={article.id} className="bg-slate-800 rounded-xl p-6 border border-slate-700">
 
-              <h3 className="text-xl font-bold text-white mb-2">{article.title}</h3>
-              <p className="text-slate-400 leading-relaxed mb-6">
-                {article.content}
-              </p>
-
-              {/* dashboard.js - Change this line */}
-              <div className="border-t border-slate-700 pt-4">
-              {/* FIX: Pass the whole article object, not just the ID */}
-              <SocialBar article={article} />
+              <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-indigo-500 rounded-full ...">
+                {article.author?.full_name?.charAt(0) || 'U'}
               </div>
+              <div>
+                <p>{article.author?.full_name || 'Anonymous User'}</p>
+                <p>{new Date(article.created_at).toLocaleDateString()}</p>
+              </div>
+              </div>
+
+              <h3>{article.title}</h3>
+              <p>{article.content}</p>
+
+              <div className="border-t border-slate-700 pt-4">
+                <SocialBar article={article} />
+              </div>
+
             </div>
           ))
         )}
