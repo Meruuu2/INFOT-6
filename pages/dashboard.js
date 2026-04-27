@@ -1,61 +1,92 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { supabase } from '../lib/supabaseClient';
+import { getRecentArticles, getTopArticles } from '../lib/db';
 
-export default function Dashboard() {
+export async function getServerSideProps(context) {
+  // Fetching data on the server side for SEO and speed
+  const [recent, top] = await Promise.all([
+    getRecentArticles(10),
+    getTopArticles(5),
+  ]);
+
+  return { 
+    props: { recent, top } 
+  };
+}
+
+export default function Dashboard({ recent, top }) {
   const router = useRouter();
-  const [user, setUser] = useState(null); 
+  const [user, setUser] = useState(null);
 
-  
   useEffect(() => {
-    const getUser = async () => {
-      
+    const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-
       if (!session) {
-        
         router.push('/auth');
       } else {
-        
         setUser(session.user);
       }
     };
-    getUser();
+    checkUser();
   }, [router]);
 
-  // --- Logout Function ---
   const handleLogout = async () => {
-    await supabase.auth.signOut(); 
-    router.push('/');              
+    await supabase.auth.signOut();
+    router.push('/');
   };
 
-  
-  if (!user) return (
-    <p style={{ color: '#fff', textAlign: 'center', marginTop: '40px' }}>
-      Loading...
-    </p>
-  );
+  // Loading state while checking auth
+  if (!user) {
+    return (
+      <div style={styles.loading}>
+        <p>Loading your dashboard...</p>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
-      <div style={styles.card}>
+      {/* Header / User Profile Section */}
+      <header style={styles.header}>
+        <div>
+          <h1 style={styles.title}>🎉 ML Hub Dashboard</h1>
+          <p style={styles.email}>Logged in as: <strong>{user.email}</strong></p>
+        </div>
+        <button style={styles.logoutBtn} onClick={handleLogout}>Logout</button>
+      </header>
 
-        <h2 style={styles.title}>🎉 Welcome to ML Hub!</h2>
+      <div style={styles.layout}>
+        {/* Main Feed: Recent Articles */}
+        <main style={styles.main}>
+          <h2 style={styles.sectionTitle}>Recent Articles</h2>
+          {recent.map((article) => (
+            <article key={article.id} style={styles.articleCard}>
+              <Link href={`/articles/${article.id}`} style={styles.link}>
+                <h3 style={styles.articleTitle}>{article.title}</h3>
+              </Link>
+              <p style={styles.meta}>
+                By {article.author?.full_name || 'System'} — {article.view_count} views
+              </p>
+            </article>
+          ))}
+        </main>
 
-        {/* Show the logged-in user's email */}
-        <p style={styles.email}>
-          Logged in as: <strong>{user.email}</strong>
-        </p>
-
-        <p style={styles.message}>
-          You are now authenticated. Explore machine learning resources, tools, and more.
-        </p>
-
-        {/* Logout Button */}
-        <button style={styles.button} onClick={handleLogout}>
-          Logout
-        </button>
-
+        {/* Sidebar: Top Articles */}
+        <aside style={styles.sidebar}>
+          <h2 style={styles.sectionTitle}>Top 5 Trending</h2>
+          <ol style={styles.list}>
+            {top.map((article) => (
+              <li key={article.id} style={styles.listItem}>
+                <Link href={`/articles/${article.id}`} style={styles.link}>
+                  {article.title}
+                </Link>
+                <span style={styles.sidebarMeta}>{article.view_count} views</span>
+              </li>
+            ))}
+          </ol>
+        </aside>
       </div>
     </div>
   );
@@ -64,45 +95,64 @@ export default function Dashboard() {
 const styles = {
   container: {
     minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0f172a',
-    padding: '20px',
-  },
-  card: {
-    backgroundColor: '#1e293b',
-    borderRadius: '12px',
-    padding: '48px',
-    maxWidth: '480px',
-    width: '100%',
-    textAlign: 'center',
-    boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
-  },
-  title: {
+    backgroundColor: '#0f172a', // Dark blue theme
     color: '#f1f5f9',
-    fontSize: '1.8rem',
-    marginBottom: '12px',
+    padding: '2rem',
+    fontFamily: 'system-ui, sans-serif',
   },
-  email: {
-    color: '#94a3b8',
-    fontSize: '0.95rem',
-    marginBottom: '16px',
+  loading: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100vh',
+    backgroundColor: '#0f172a',
+    color: '#fff'
   },
-  message: {
-    color: '#64748b',
-    fontSize: '0.9rem',
-    marginBottom: '28px',
-    lineHeight: '1.6',
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    maxWidth: '1100px',
+    margin: '0 auto 2rem auto',
+    paddingBottom: '1.5rem',
+    borderBottom: '1px solid #1e293b',
   },
-  button: {
-    backgroundColor: '#ef4444',  
+  title: { fontSize: '1.8rem', margin: 0 },
+  email: { color: '#94a3b8', margin: '5px 0 0 0', fontSize: '0.9rem' },
+  logoutBtn: {
+    backgroundColor: '#ef4444',
     color: '#fff',
     border: 'none',
-    borderRadius: '8px',
-    padding: '12px 28px',
-    fontSize: '1rem',
-    fontWeight: '600',
+    padding: '8px 16px',
+    borderRadius: '6px',
     cursor: 'pointer',
+    fontWeight: '600'
   },
+  layout: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 300px',
+    gap: '3rem',
+    maxWidth: '1100px',
+    margin: '0 auto',
+  },
+  main: { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  sectionTitle: { fontSize: '1.4rem', marginBottom: '1.5rem', color: '#38bdf8' },
+  articleCard: {
+    backgroundColor: '#1e293b',
+    padding: '1.5rem',
+    borderRadius: '10px',
+    border: '1px solid #334155',
+  },
+  articleTitle: { margin: '0 0 0.5rem 0', color: '#f8fafc' },
+  link: { textDecoration: 'none', color: 'inherit' },
+  meta: { fontSize: '0.85rem', color: '#64748b' },
+  sidebar: {
+    backgroundColor: '#1e293b',
+    padding: '1.5rem',
+    borderRadius: '10px',
+    height: 'fit-content'
+  },
+  list: { paddingLeft: '1.2rem', margin: 0 },
+  listItem: { marginBottom: '1rem', color: '#e2e8f0' },
+  sidebarMeta: { display: 'block', fontSize: '0.75rem', color: '#64748b' }
 };
