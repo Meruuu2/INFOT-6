@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { likeArticle, unlikeArticle, hasLiked, getLikeCount, addComment } from '../lib/db';
+// socialBar.js
+import { 
+  likeArticle, 
+  unlikeArticle, 
+  hasLiked, 
+  getLikeCount, 
+  addComment, 
+  getComments // Add this to fetch the list of comments
+} from '../lib/db';
 import { shareOnFacebook, shareOnTwitter, copyLink } from '../lib/share';
 
 export default function SocialBar({ article }) {
