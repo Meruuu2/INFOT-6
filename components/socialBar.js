@@ -52,8 +52,12 @@ export default function SocialBar({ article }) {
     alert('Comment posted!');
   };
 
+  // socialBar.js - Updated handleCopy
   const handleCopy = async () => {
-    const { success } = await copyLink();
+  // Fix: Create a specific URL for the article if possible, 
+  // otherwise it just copies the dashboard URL.
+    const specificUrl = `${window.location.origin}/article/${article.id}`; 
+    const { success } = await copyLink(specificUrl); 
     if (success) {
       setCopyLabel('Copied!');
       setTimeout(() => setCopyLabel('Copy link'), 2000);

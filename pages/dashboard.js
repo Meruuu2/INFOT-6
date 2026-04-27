@@ -20,13 +20,14 @@ export default function Dashboard() {
   }, []);
 
   // 2. Fetch articles from the database
+  // dashboard.js - Updated fetchArticles query
   async function fetchArticles() {
     const { data, error } = await supabase
       .from('articles')
       .select(`
         *,
-        profiles (full_name, avatar_url)
-      `)
+        author:author_id (full_name, avatar_url) 
+      `) // Changed 'profiles' to 'author:author_id' to match your DB logic
       .order('created_at', { ascending: false });
 
     if (error) {
