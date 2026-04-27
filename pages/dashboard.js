@@ -1,158 +1,100 @@
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
-import Link from 'next/link';
-import { supabase } from '../lib/supabaseClient';
-import { getRecentArticles, getTopArticles } from '../lib/db';
+import { supabase } from '../lib/supabaseClient'; // Double check if your path is ../utils/supabaseClient
+import SocialBar from '../components/SocialBar';
 
-export async function getServerSideProps(context) {
-  // Fetching data on the server side for SEO and speed
-  const [recent, top] = await Promise.all([
-    getRecentArticles(10),
-    getTopArticles(5),
-  ]);
-
-  return { 
-    props: { recent, top } 
-  };
-}
-
-export default function Dashboard({ recent, top }) {
-  const router = useRouter();
+export default function Dashboard() {
+  const [articles, setArticles] = useState([]);
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/auth');
-      } else {
-        setUser(session.user);
+    // 1. Get current user
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      if (user) {
+        fetchArticles();
       }
     };
-    checkUser();
-  }, [router]);
+    getUser();
+  }, []);
+
+  // 2. Fetch articles from the database
+  async function fetchArticles() {
+    const { data, error } = await supabase
+      .from('articles')
+      .select(`
+        *,
+        profiles (full_name, avatar_url)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching articles:', error);
+    } else {
+      setArticles(data);
+    }
+    setLoading(false);
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push('/');
+    window.location.href = '/'; // Redirect to login
   };
 
-  // Loading state while checking auth
-  if (!user) {
-    return (
-      <div style={styles.loading}>
-        <p>Loading your dashboard...</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">Loading ML Hub...</div>;
 
   return (
-    <div style={styles.container}>
-      {/* Header / User Profile Section */}
-      <header style={styles.header}>
+    <div className="min-h-screen bg-[#0f172a] text-slate-200 p-4 md:p-8">
+      {/* HEADER */}
+      <div className="max-w-4xl mx-auto flex justify-between items-center mb-10">
         <div>
-          <h1 style={styles.title}>🎉 ML Hub Dashboard</h1>
-          <p style={styles.email}>Logged in as: <strong>{user.email}</strong></p>
+          <h1 className="text-2xl font-bold text-white">🚀 ML Hub</h1>
+          <p className="text-sm text-slate-400">Logged in as: {user?.email}</p>
         </div>
-        <button style={styles.logoutBtn} onClick={handleLogout}>Logout</button>
-      </header>
+        <button 
+          onClick={handleLogout}
+          className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition"
+        >
+          Logout
+        </button>
+      </div>
 
-      <div style={styles.layout}>
-        {/* Main Feed: Recent Articles */}
-        <main style={styles.main}>
-          <h2 style={styles.sectionTitle}>Recent Articles</h2>
-          {recent.map((article) => (
-            <article key={article.id} style={styles.articleCard}>
-              <Link href={`/articles/${article.id}`} style={styles.link}>
-                <h3 style={styles.articleTitle}>{article.title}</h3>
-              </Link>
-              <p style={styles.meta}>
-                By {article.author?.full_name || 'System'} — {article.view_count} views
+      {/* ARTICLES LIST */}
+      <div className="max-w-4xl mx-auto space-y-6">
+        <h2 className="text-xl font-semibold border-b border-slate-700 pb-2">Latest Machine Learning Resources</h2>
+        
+        {articles.length === 0 ? (
+          <div className="bg-slate-800 p-10 rounded-xl text-center border border-dashed border-slate-600">
+            <p className="text-slate-400">No articles found in the database.</p>
+            <p className="text-xs mt-2 text-slate-500">Go to Supabase Table Editor and add a row to "articles" to see it here!</p>
+          </div>
+        ) : (
+          articles.map((article) => (
+            <div key={article.id} className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center font-bold">
+                  {article.profiles?.full_name?.charAt(0) || 'U'}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">{article.profiles?.full_name || 'Anonymous User'}</p>
+                  <p className="text-xs text-slate-500">{new Date(article.created_at).toLocaleDateString()}</p>
+                </div>
+              </div>
+
+              <h3 className="text-xl font-bold text-white mb-2">{article.title}</h3>
+              <p className="text-slate-400 leading-relaxed mb-6">
+                {article.content}
               </p>
-            </article>
-          ))}
-        </main>
 
-        {/* Sidebar: Top Articles */}
-        <aside style={styles.sidebar}>
-          <h2 style={styles.sectionTitle}>Top 5 Trending</h2>
-          <ol style={styles.list}>
-            {top.map((article) => (
-              <li key={article.id} style={styles.listItem}>
-                <Link href={`/articles/${article.id}`} style={styles.link}>
-                  {article.title}
-                </Link>
-                <span style={styles.sidebarMeta}>{article.view_count} views</span>
-              </li>
-            ))}
-          </ol>
-        </aside>
+              {/* THE SOCIAL BAR COMPONENT */}
+              <div className="border-t border-slate-700 pt-4">
+                <SocialBar articleId={article.id} />
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
-
-const styles = {
-  container: {
-    minHeight: '100vh',
-    backgroundColor: '#0f172a', // Dark blue theme
-    color: '#f1f5f9',
-    padding: '2rem',
-    fontFamily: 'system-ui, sans-serif',
-  },
-  loading: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '100vh',
-    backgroundColor: '#0f172a',
-    color: '#fff'
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    maxWidth: '1100px',
-    margin: '0 auto 2rem auto',
-    paddingBottom: '1.5rem',
-    borderBottom: '1px solid #1e293b',
-  },
-  title: { fontSize: '1.8rem', margin: 0 },
-  email: { color: '#94a3b8', margin: '5px 0 0 0', fontSize: '0.9rem' },
-  logoutBtn: {
-    backgroundColor: '#ef4444',
-    color: '#fff',
-    border: 'none',
-    padding: '8px 16px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontWeight: '600'
-  },
-  layout: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 300px',
-    gap: '3rem',
-    maxWidth: '1100px',
-    margin: '0 auto',
-  },
-  main: { display: 'flex', flexDirection: 'column', gap: '1rem' },
-  sectionTitle: { fontSize: '1.4rem', marginBottom: '1.5rem', color: '#38bdf8' },
-  articleCard: {
-    backgroundColor: '#1e293b',
-    padding: '1.5rem',
-    borderRadius: '10px',
-    border: '1px solid #334155',
-  },
-  articleTitle: { margin: '0 0 0.5rem 0', color: '#f8fafc' },
-  link: { textDecoration: 'none', color: 'inherit' },
-  meta: { fontSize: '0.85rem', color: '#64748b' },
-  sidebar: {
-    backgroundColor: '#1e293b',
-    padding: '1.5rem',
-    borderRadius: '10px',
-    height: 'fit-content'
-  },
-  list: { paddingLeft: '1.2rem', margin: 0 },
-  listItem: { marginBottom: '1rem', color: '#e2e8f0' },
-  sidebarMeta: { display: 'block', fontSize: '0.75rem', color: '#64748b' }
-};
