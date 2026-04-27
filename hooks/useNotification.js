@@ -1,101 +1,82 @@
+// hooks/useNotifications.js
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { getUnreadNotifications, markAllNotificationsRead } from '../lib/db';
 
 export function useNotifications(userId) {
   const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount]     = useState(0);
-  const notifChannel  = useRef(null);
-  const articleChannel = useRef(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const channelRef = useRef(null);
 
-  // Initial fetch on mount
+  // Initial fetch of unread notifications
   useEffect(() => {
     if (!userId) return;
-    getUnreadNotifications(userId).then(data => {
-      setNotifications(data);
-      setUnreadCount(data.length);
-    });
+
+    const fetchNotifications = async () => {
+      const { data } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('recipient_id', userId)
+        .eq('is_read', false)
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        setNotifications(data);
+        setUnreadCount(data.length);
+      }
+    };
+
+    fetchNotifications();
   }, [userId]);
 
-  // Realtime subscription
+  // Realtime subscription for new notifications
   useEffect(() => {
     if (!userId) return;
 
-    // Clean up any old channels first
-    if (notifChannel.current)   supabase.removeChannel(notifChannel.current);
-    if (articleChannel.current) supabase.removeChannel(articleChannel.current);
+    // Clean up any existing channel before creating a new one
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
 
-    // ── Channel 1: New notifications (likes, comments on MY articles) ──
-    notifChannel.current = supabase
-      .channel(`my-notifications:${userId}`)
+    channelRef.current = supabase
+      .channel(`notifications:${userId}`)         // Unique channel per user
       .on(
         'postgres_changes',
         {
           event:  'INSERT',
           schema: 'public',
           table:  'notifications',
-          filter: `recipient_id=eq.${userId}`,  // server-side filter — private
+          filter: `recipient_id=eq.${userId}`,    // Server-side filter — only your rows
         },
         (payload) => {
-          setNotifications(prev => [payload.new, ...prev]);
+          const newNotif = payload.new;
+          setNotifications(prev => [newNotif, ...prev]);
           setUnreadCount(prev => prev + 1);
-          // Optional: show a toast
-          showToast(payload.new);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Realtime notifications connected.');
+        }
+      });
 
-    // ── Channel 2: New articles published by ANYONE ──
-    articleChannel.current = supabase
-      .channel('new-articles-feed')
-      .on(
-        'postgres_changes',
-        {
-          event:  'INSERT',
-          schema: 'public',
-          table:  'articles',
-        },
-        (payload) => {
-          console.log('New article published:', payload.new.title);
-          // E.g. show a "New article available" banner
-        }
-      )
-      // ── Channel 2b: Article UPDATED event ──
-      .on(
-        'postgres_changes',
-        {
-          event:  'UPDATE',
-          schema: 'public',
-          table:  'articles',
-        },
-        (payload) => {
-          console.log('Article updated:', payload.new.title);
-        }
-      )
-      .subscribe();
-
+    // Cleanup: remove channel when user logs out or component unmounts
     return () => {
-      supabase.removeChannel(notifChannel.current);
-      supabase.removeChannel(articleChannel.current);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, [userId]);
 
-  const markRead = async () => {
-    await markAllNotificationsRead(userId);
+  const markAllRead = async () => {
+    if (!userId) return;
+    await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('recipient_id', userId)
+      .eq('is_read', false);
     setUnreadCount(0);
   };
 
-  return { notifications, unreadCount, markRead };
-}
-
-// Simple toast helper — replace with your toast library of choice
-function showToast(notif) {
-  const msgs = {
-    like:    `Someone liked your article: "${notif.payload?.article_title}"`,
-    comment: `New comment on: "${notif.payload?.article_title}"`,
-  };
-  if (typeof window !== 'undefined' && msgs[notif.type]) {
-    console.info('[Notification]', msgs[notif.type]);
-    // e.g. toast.success(msgs[notif.type]);
-  }
+  return { notifications, unreadCount, markAllRead };
 }
