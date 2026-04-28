@@ -10,7 +10,7 @@ import "@/styles/globals.css";
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useNotifications } from '../hooks/useNotifications';
-import navBar from '../components/navBar';
+import Navbar from '../components/navBar';
 
 // ─── Inner component ──────────────────────────────────────────────────────────
 // Separated so hooks (useNotifications) always have a valid userId to work with
