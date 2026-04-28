@@ -10,7 +10,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { getArticleById, trackView, getComments } from '../../lib/db';
-import socialBar from '../../components/socialBar'; 
+import SocialBar from '../../components/socialBar';   // ← lowercase 's' matches the actual filename on disk
+
 // Runs on the server — fetches article before page loads
 export async function getServerSideProps({ params }) {
   try {
@@ -105,7 +106,7 @@ export default function ArticlePage({ article }) {
 
         {/* ── Like / Share / Comment bar ── */}
         {/* onCommentAdded refreshes the comment list below when user posts */}
-        <socialBar
+        <SocialBar
           article={article}
           onCommentAdded={loadComments}
         />
