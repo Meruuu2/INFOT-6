@@ -1,132 +1,91 @@
-// components/socialBar.js   ← filename is lowercase 's' — matches all imports
-// FIX: Renamed from SocialBar.js to socialBar.js to resolve the Windows
-//      case-sensitivity conflict that caused:
-//      "Already included file name 'd:/...components/socialBar.js' differs from file name"
-//
-// HOW TO APPLY THIS FIX IN VS CODE:
-//   1. Delete your old components/SocialBar.js  (or socialBar.js — whichever exists)
-//   2. Create a NEW file named exactly:  components/socialBar.js
-//   3. Paste this entire file into it
-//   4. In [id].js make sure the import reads:
-//        import SocialBar from '../../components/socialBar';
-
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { likeArticle, unlikeArticle, hasLiked, getLikeCount, addComment } from '../lib/db';
 import { shareOnFacebook, shareOnTwitter, copyLink } from '../lib/share';
 
 export default function SocialBar({ article, onCommentAdded }) {
-  const [user,           setUser]           = useState(null);
-  const [liked,          setLiked]          = useState(false);
-  const [likeCount,      setLikeCount]      = useState(0);
-  const [comment,        setComment]        = useState('');
-  const [replyTo,        setReplyTo]        = useState(null);
-  const [copyLabel,      setCopyLabel]      = useState('Copy Link');
-  const [likeLoading,    setLikeLoading]    = useState(false);
+  const [user, setUser]           = useState(null);
+  const [liked, setLiked]         = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [comment, setComment]     = useState('');
+  const [replyTo, setReplyTo]     = useState(null); // { id, name }
+  const [copyLabel, setCopyLabel] = useState('Copy Link');
+  const [likeLoading, setLikeLoading] = useState(false);
   const [commentLoading, setCommentLoading] = useState(false);
-  const [toast,          setToast]          = useState('');
-  const [initLoading,    setInitLoading]    = useState(true);
+  const [toast, setToast]         = useState('');
 
-  // ── Load user + like state once on mount ─────────────────────
-  // FIX: Was two separate useEffects both calling getUser (ran twice).
-  //      Merged into one. Also added getLikeCount + hasLiked calls
-  //      which were completely missing before — that's why the like
-  //      button always showed 0 and wasn't highlighted.
+  // Get current user
   useEffect(() => {
-    if (!article?.id) return;
+    supabase.auth.getUser().then(({ data }) => setUser(data?.user ?? null));
+  }, []);
 
-    const init = async () => {
-      try {
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        setUser(currentUser ?? null);
+  // Load like state
+  // Change this in SocialBar.js to ensure the user is fully loaded
+useEffect(() => {
+  const checkUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setUser(user ?? null);
+  };
+  checkUser();
+}, []);
 
-        // Always load the like count regardless of login state
-        const count = await getLikeCount(article.id);
-        setLikeCount(count);
-
-        // Only check if THIS user liked it when logged in
-        if (currentUser) {
-          const alreadyLiked = await hasLiked(article.id, currentUser.id);
-          setLiked(alreadyLiked);
-        }
-      } catch (err) {
-        console.error('[SocialBar init]', err.message);
-      } finally {
-        setInitLoading(false);
-      }
-    };
-
-    init();
-  }, [article?.id]);
-
-  // ── Toast helper ──────────────────────────────────────────────
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
   };
 
-  // ── Like / Unlike ─────────────────────────────────────────────
-  const handleLike = async () => {
-    if (!user) return showToast('⚠️ Please log in to like articles.');
-    if (likeLoading) return;
-
-    setLikeLoading(true);
-
-    // Optimistic update — change UI instantly
-    const wasLiked = liked;
-    setLiked(!wasLiked);
-    setLikeCount(c => wasLiked ? c - 1 : c + 1);
-
-    try {
-      if (wasLiked) {
-        await unlikeArticle(article.id, user.id);
-      } else {
-        await likeArticle(article.id, user.id);
-        showToast('❤️ Article liked!');
-      }
-    } catch (err) {
-      // Revert on failure
-      setLiked(wasLiked);
-      setLikeCount(c => wasLiked ? c + 1 : c - 1);
-      showToast('❌ ' + (err.message || 'Could not update like.'));
-    } finally {
-      setLikeLoading(false);
+  // Inside SocialBar.js - update handleLike
+const handleLike = async () => {
+  if (!user) {
+    showToast("Please login to like posts");
+    return;
+  }
+  
+  setLikeLoading(true);
+  try {
+    if (liked) {
+      await unlikeArticle(article.id, user.id);
+      setLikeCount(prev => prev - 1);
+      setLiked(false);
+    } else {
+      await likeArticle(article.id, user.id);
+      setLikeCount(prev => prev + 1);
+      setLiked(true);
     }
-  };
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setLikeLoading(false);
+  }
+};
 
-  // ── Post comment / reply ──────────────────────────────────────
   const handleComment = async (e) => {
-    e.preventDefault();
-    if (!user)           return showToast('⚠️ Please log in to comment.');
-    if (!comment.trim()) return;
+  e.preventDefault();
+  if (!user) return alert("Please login to comment");
+  if (!comment.trim()) return;
 
-    setCommentLoading(true);
-    try {
-      await addComment(
-        article.id,
-        user.id,
-        comment.trim(),
-        replyTo?.id ?? null   // null = top-level comment, uuid = reply
-      );
-      setComment('');
-      setReplyTo(null);
-      showToast('✅ Comment posted!');
-      if (onCommentAdded) onCommentAdded(); // refresh comment list in [id].js
-    } catch (err) {
-      showToast('❌ ' + (err.message || 'Could not post comment.'));
-    } finally {
-      setCommentLoading(false);
-    }
-  };
+  setCommentLoading(true);
+  try {
+    // Passes the article ID, User ID, and the text
+    await addComment(article.id, user.id, comment, replyTo?.id);
+    setComment('');
+    setReplyTo(null);
+    if (onCommentAdded) onCommentAdded(); // Refresh the list
+    showToast("Comment posted!");
+  } catch (err) {
+    showToast("Failed to post comment");
+  } finally {
+    setCommentLoading(false);
+  }
+};
 
-  // ── Copy link ─────────────────────────────────────────────────
   const handleCopy = async () => {
     const url = typeof window !== 'undefined' ? window.location.href : '';
     const { success } = await copyLink(url);
     if (success) {
       setCopyLabel('✓ Copied!');
-      showToast('🔗 Link copied to clipboard!');
       setTimeout(() => setCopyLabel('Copy Link'), 2500);
+      showToast('🔗 Link copied to clipboard!');
     }
   };
 
@@ -135,48 +94,36 @@ export default function SocialBar({ article, onCommentAdded }) {
   return (
     <div style={styles.wrapper}>
 
-      {/* Toast pop-up */}
+      {/* Toast notification */}
       {toast && <div style={styles.toast}>{toast}</div>}
 
       {/* ── Action bar ── */}
       <div style={styles.actionBar}>
 
-        {/* Like button */}
+        {/* Like */}
         <button
           onClick={handleLike}
-          disabled={likeLoading || initLoading}
-          style={{
-            ...styles.actionBtn,
-            ...(liked ? styles.actionBtnActive : {}),
-            opacity: initLoading ? 0.5 : 1,
-          }}
-          title={user ? (liked ? 'Unlike' : 'Like this article') : 'Log in to like'}
+          disabled={likeLoading}
+          style={{ ...styles.actionBtn, ...(liked ? styles.actionBtnActive : {}) }}
         >
-          {liked ? '❤️' : '🤍'}
-          <span style={{ marginLeft: 4 }}>
-            {likeCount > 0 ? likeCount : ''} {liked ? 'Liked' : 'Like'}
-          </span>
+          {liked ? '❤️' : '🤍'} {likeCount > 0 ? likeCount : ''} Like
         </button>
 
-        {/* Share: Facebook */}
+        {/* Share */}
         <button
           onClick={() => shareOnFacebook(articleUrl)}
           style={styles.shareBtn}
-          title="Share on Facebook"
         >
           <span style={styles.fbIcon}>f</span> Facebook
         </button>
 
-        {/* Share: Twitter / X */}
         <button
           onClick={() => shareOnTwitter(articleUrl, article.title)}
           style={styles.shareBtn}
-          title="Share on Twitter / X"
         >
           <span style={styles.xIcon}>𝕏</span> Twitter / X
         </button>
 
-        {/* Copy link */}
         <button onClick={handleCopy} style={styles.copyBtn}>
           🔗 {copyLabel}
         </button>
@@ -185,10 +132,13 @@ export default function SocialBar({ article, onCommentAdded }) {
 
       <hr style={styles.divider} />
 
-      {/* ── Comment / Reply form ── */}
+      {/* ── Comment form ── */}
       <div style={styles.commentForm}>
         <h3 style={styles.formTitle}>
-          {replyTo ? `↩ Replying to ${replyTo.name}` : '💬 Leave a Comment'}
+          {replyTo
+            ? `↩ Replying to ${replyTo.name}`
+            : '💬 Leave a Comment'
+          }
           {replyTo && (
             <button onClick={() => setReplyTo(null)} style={styles.cancelReply}>
               Cancel reply
@@ -201,40 +151,23 @@ export default function SocialBar({ article, onCommentAdded }) {
             value={comment}
             onChange={e => setComment(e.target.value)}
             placeholder={
-              !user
-                ? 'Log in to leave a comment'
-                : replyTo
+              user
+                ? replyTo
                   ? `Reply to ${replyTo.name}...`
                   : 'Share your thoughts on this article...'
+                : 'Log in to leave a comment'
             }
-            disabled={!user || commentLoading}
+            disabled={!user}
             rows={3}
-            style={{
-              ...styles.textarea,
-              opacity: !user ? 0.5 : 1,
-              cursor:  !user ? 'not-allowed' : 'text',
-            }}
+            style={styles.textarea}
           />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button
-              type="submit"
-              disabled={commentLoading || !user || !comment.trim()}
-              style={{
-                ...styles.submitBtn,
-                opacity: (commentLoading || !user || !comment.trim()) ? 0.6 : 1,
-                cursor:  (commentLoading || !user || !comment.trim()) ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {commentLoading
-                ? '⏳ Posting...'
-                : replyTo ? '↩ Post Reply' : '💬 Post Comment'}
-            </button>
-            {!user && (
-              <span style={{ color: '#64748b', fontSize: 12 }}>
-                You must be logged in to comment
-              </span>
-            )}
-          </div>
+          <button
+            type="submit"
+            disabled={commentLoading || !user || !comment.trim()}
+            style={styles.submitBtn}
+          >
+            {commentLoading ? 'Posting...' : 'Post Comment'}
+          </button>
         </form>
       </div>
 
@@ -261,14 +194,13 @@ const styles = {
     fontSize: 14,
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
     zIndex: 9999,
-    maxWidth: 320,
+    animation: 'fadeIn 0.2s ease',
   },
   actionBar: {
     display: 'flex',
     flexWrap: 'wrap',
     gap: 10,
     marginBottom: '1.5rem',
-    alignItems: 'center',
   },
   actionBtn: {
     display: 'flex',
@@ -312,7 +244,6 @@ const styles = {
     justifyContent: 'center',
     fontSize: 12,
     fontWeight: 700,
-    flexShrink: 0,
   },
   xIcon: {
     color: '#f1f5f9',
@@ -350,7 +281,6 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: 12,
-    flexWrap: 'wrap',
   },
   cancelReply: {
     background: 'none',
@@ -374,7 +304,6 @@ const styles = {
     marginBottom: 10,
     fontFamily: 'inherit',
     lineHeight: 1.6,
-    outline: 'none',
   },
   submitBtn: {
     backgroundColor: '#6366f1',
@@ -384,6 +313,6 @@ const styles = {
     padding: '10px 22px',
     fontSize: 14,
     fontWeight: 600,
-    transition: 'opacity 0.2s',
+    cursor: 'pointer',
   },
 };
