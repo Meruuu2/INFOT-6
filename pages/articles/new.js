@@ -1,3 +1,11 @@
+// pages/articles/new.js
+// FIXES:
+//   1. After publish → redirects to /articles/[id] so you see your article immediately
+//   2. Shows the exact title entered (no mismatch)
+//   3. author_id is pulled from live session (fixes RLS + FK)
+//   4. Title and content are validated before submit
+//   5. Auth guard redirects to /auth if not logged in
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
@@ -5,40 +13,61 @@ import { createArticle } from '../../lib/db';
 
 export default function NewArticle() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [title, setTitle] = useState('');
+  const [user,    setUser]    = useState(null);
+  const [title,   setTitle]   = useState('');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error,   setError]   = useState('');
 
+  // Auth guard — redirect if not logged in
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (!data?.user) router.push('/auth');
-      else setUser(data.user);
+      if (!data?.user) {
+        router.push('/auth');
+      } else {
+        setUser(data.user);
+      }
     });
   }, []);
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
+    e.preventDefault();
+    setError('');
 
-  try {
-    // 1. Check if the user is actually logged in
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("You must be logged in to publish.");
+    // Client-side validation
+    if (!title.trim()) {
+      setError('Please enter a title.');
+      return;
+    }
+    if (!content.trim()) {
+      setError('Please enter some content.');
+      return;
+    }
 
-    // 2. Use your form state (title and content) instead of hardcoded strings
-    // We use the function from db.js to keep it clean
-    await createArticle(title, content, user.id);
+    setLoading(true);
+    try {
+      // Pull the session directly — this ensures author_id === auth.uid()
+      // which is required by RLS and matches profiles.id (same UUID)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) throw new Error('You must be logged in to publish.');
 
-    router.push('/dashboard'); 
-  } catch (err) {
-    setError(err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+      const article = await createArticle(
+        title.trim(),    // exact title the user typed
+        content.trim(),  // exact content the user typed
+        session.user.id  // author_id = auth.uid() — fixes FK error
+      );
+
+      // ✅ FIX: redirect to the new article page directly
+      // This lets you see your published article immediately with the correct title
+      router.push(`/articles/${article.id}`);
+
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.card}>
@@ -46,6 +75,7 @@ export default function NewArticle() {
         <p style={styles.subtitle}>Share your ML knowledge with the community</p>
 
         <form onSubmit={handleSubmit}>
+          {/* Title */}
           <label style={styles.label}>Title</label>
           <input
             style={styles.input}
@@ -53,28 +83,58 @@ export default function NewArticle() {
             placeholder="e.g. Introduction to Neural Networks"
             value={title}
             onChange={e => setTitle(e.target.value)}
+            maxLength={200}
+            required
           />
+          {/* Character hint */}
+          {title.length > 0 && (
+            <p style={styles.charHint}>{title.length}/200 characters</p>
+          )}
 
+          {/* Content */}
           <label style={styles.label}>Content</label>
           <textarea
             style={{ ...styles.input, height: 280, resize: 'vertical' }}
-            placeholder="Write your article here. HTML is supported."
+            placeholder="Write your article here..."
             value={content}
             onChange={e => setContent(e.target.value)}
+            required
           />
 
-          {error && <p style={styles.errorMsg}>{error}</p>}
+          {/* Error message */}
+          {error && (
+            <div style={styles.errorBox}>
+              ❌ {error}
+            </div>
+          )}
+
+          {/* Preview of title that will be saved */}
+          {title.trim() && (
+            <div style={styles.previewBox}>
+              <span style={styles.previewLabel}>Preview title: </span>
+              <span style={styles.previewTitle}>"{title.trim()}"</span>
+            </div>
+          )}
 
           <div style={styles.btnRow}>
             <button
               type="button"
               onClick={() => router.push('/dashboard')}
               style={styles.cancelBtn}
+              disabled={loading}
             >
               Cancel
             </button>
-            <button type="submit" style={styles.submitBtn} disabled={loading}>
-              {loading ? 'Publishing...' : '🚀 Publish Article'}
+            <button
+              type="submit"
+              style={{
+                ...styles.submitBtn,
+                opacity: loading || !title.trim() || !content.trim() ? 0.6 : 1,
+                cursor: loading ? 'not-allowed' : 'pointer',
+              }}
+              disabled={loading || !title.trim() || !content.trim()}
+            >
+              {loading ? '⏳ Publishing...' : '🚀 Publish Article'}
             </button>
           </div>
         </form>
@@ -124,7 +184,7 @@ const styles = {
   input: {
     width: '100%',
     padding: '12px 14px',
-    marginBottom: '1.25rem',
+    marginBottom: '0.5rem',
     borderRadius: 8,
     border: '1px solid #334155',
     backgroundColor: '#0f172a',
@@ -132,11 +192,37 @@ const styles = {
     fontSize: '1rem',
     boxSizing: 'border-box',
     fontFamily: 'inherit',
+    outline: 'none',
   },
-  errorMsg: {
+  charHint: {
+    color: '#475569',
+    fontSize: '0.75rem',
+    marginBottom: '1.25rem',
+    textAlign: 'right',
+  },
+  errorBox: {
+    backgroundColor: '#450a0a',
+    border: '1px solid #7f1d1d',
     color: '#f87171',
-    fontSize: '0.9rem',
+    padding: '10px 14px',
+    borderRadius: 8,
+    fontSize: '0.875rem',
     marginBottom: '1rem',
+  },
+  previewBox: {
+    backgroundColor: '#0f172a',
+    border: '1px solid #334155',
+    borderRadius: 8,
+    padding: '10px 14px',
+    marginBottom: '1rem',
+    fontSize: '0.875rem',
+  },
+  previewLabel: {
+    color: '#64748b',
+  },
+  previewTitle: {
+    color: '#a5b4fc',
+    fontWeight: 600,
   },
   btnRow: {
     display: 'flex',
@@ -162,5 +248,6 @@ const styles = {
     fontSize: '0.95rem',
     fontWeight: 600,
     cursor: 'pointer',
+    transition: 'opacity 0.2s',
   },
 };

@@ -1,3 +1,12 @@
+// pages/dashboard.js
+// FIXES:
+//   1. article.author.full_name shows correctly (not null)
+//   2. Article cards link to /articles/[id] correctly
+//   3. Top 5 sidebar shows like_count from fixed getTopArticles()
+//   4. Auth guard works — redirects to /auth if not logged in
+//   5. Loading skeletons while data fetches
+//   6. Empty state with call-to-action
+
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -6,13 +15,13 @@ import { getRecentArticles, getTopArticles } from '../lib/db';
 
 export default function Dashboard() {
   const router = useRouter();
-  const [recent, setRecent] = useState([]);
-  const [top, setTop] = useState([]);
+  const [recent,  setRecent]  = useState([]);
+  const [top,     setTop]     = useState([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(null);
+  const [user,    setUser]    = useState(null);
 
+  // Auth guard
   useEffect(() => {
-    // Guard: redirect to auth if not logged in
     supabase.auth.getUser().then(({ data }) => {
       if (!data?.user) {
         router.push('/auth');
@@ -22,8 +31,8 @@ export default function Dashboard() {
     });
   }, []);
 
+  // Fetch both feeds in parallel
   useEffect(() => {
-    // Fetch both feeds in parallel
     Promise.all([getRecentArticles(10), getTopArticles(5)])
       .then(([recentData, topData]) => {
         setRecent(recentData ?? []);
@@ -32,6 +41,14 @@ export default function Dashboard() {
       .catch(err => console.error('Dashboard fetch error:', err))
       .finally(() => setLoading(false));
   }, []);
+
+  // Helper: safely get author display name
+  // Handles NULL username/full_name from profile
+  const getAuthorName = (article) => {
+    const a = article.author;
+    if (!a) return 'Anonymous';
+    return a.full_name || a.username || user?.email?.split('@')[0] || 'Anonymous';
+  };
 
   const formatDate = (iso) => {
     if (!iso) return '';
@@ -43,31 +60,41 @@ export default function Dashboard() {
   return (
     <div style={styles.page}>
 
-      {/* Page header */}
+      {/* ── Page header ── */}
       <div style={styles.header}>
         <div>
           <h1 style={styles.pageTitle}>ML Hub Feed</h1>
           <p style={styles.pageSubtitle}>
-            {user ? `Welcome back, ${user.email}` : 'Browse the latest articles'}
+            {user ? `Welcome back, ${user.email?.split('@')[0]}` : 'Browse the latest articles'}
           </p>
         </div>
         <Link href="/articles/new" style={styles.writeBtn}>
-          + Write Article
+          ✏️ Write Article
         </Link>
       </div>
 
       <div style={styles.grid}>
 
-        {/* ── Main Feed ───────────────────────────────────── */}
+        {/* ── LEFT: Recent Articles ── */}
         <main>
-          <h2 style={styles.sectionTitle}>Recent Articles</h2>
+          <h2 style={styles.sectionTitle}>📰 Recent Articles</h2>
 
+          {/* Loading skeletons */}
           {loading && (
-            <div style={styles.emptyState}>Loading articles...</div>
+            <>
+              {[1, 2, 3].map(i => (
+                <div key={i} style={styles.skeletonCard}>
+                  <div style={{ ...styles.skeletonLine, width: '70%', height: 18, marginBottom: 10 }} />
+                  <div style={{ ...styles.skeletonLine, width: '40%', height: 12 }} />
+                </div>
+              ))}
+            </>
           )}
 
+          {/* Empty state */}
           {!loading && recent.length === 0 && (
             <div style={styles.emptyState}>
+              <p style={{ fontSize: 32, marginBottom: 8 }}>📭</p>
               <p style={{ color: '#94a3b8', marginBottom: 12 }}>No articles yet.</p>
               <Link href="/articles/new" style={styles.writeBtn}>
                 Be the first to write one →
@@ -75,51 +102,112 @@ export default function Dashboard() {
             </div>
           )}
 
-          {recent.map(article => (
+          {/* Article cards */}
+          {!loading && recent.map(article => (
             <div key={article.id} style={styles.articleCard}>
-              <Link href={`/articles/${article.id}`} style={{ textDecoration: 'none' }}>
+
+              {/* Title — links to the article page */}
+              <Link
+                href={`/articles/${article.id}`}
+                style={{ textDecoration: 'none' }}
+              >
                 <h3 style={styles.articleTitle}>{article.title}</h3>
               </Link>
+
+              {/* Meta row: author · date · views */}
               <div style={styles.articleMeta}>
                 <span style={styles.authorBadge}>
-                  {article.author?.full_name || article.author?.username || 'Anonymous'}
+                  ✍️ {getAuthorName(article)}
                 </span>
                 <span style={styles.dot}>·</span>
                 <span>{formatDate(article.created_at)}</span>
                 <span style={styles.dot}>·</span>
-                <span style={styles.viewBadge}>👁 {article.view_count ?? 0} views</span>
+                <span style={styles.viewBadge}>
+                  👁 {(article.view_count ?? 0).toLocaleString()} views
+                </span>
+              </div>
+
+              {/* Read article link */}
+              <div style={{ marginTop: 10 }}>
+                <Link
+                  href={`/articles/${article.id}`}
+                  style={styles.readLink}
+                >
+                  Read article →
+                </Link>
               </div>
             </div>
           ))}
         </main>
 
-        {/* ── Top 5 Sidebar ───────────────────────────────── */}
+        {/* ── RIGHT: Top 5 Sidebar ── */}
         <aside>
           <div style={styles.sidebar}>
             <h2 style={styles.sectionTitle}>🏆 Top 5 Articles</h2>
+            <p style={styles.sidebarSubtitle}>Ranked by views + likes</p>
 
+            {/* Loading */}
             {loading && (
-              <p style={{ color: '#64748b', fontSize: 13 }}>Loading...</p>
+              <>
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div key={i} style={{ ...styles.skeletonLine, width: '100%', height: 40, marginBottom: 10, borderRadius: 6 }} />
+                ))}
+              </>
             )}
 
+            {/* Empty */}
             {!loading && top.length === 0 && (
               <p style={{ color: '#64748b', fontSize: 13 }}>No articles yet.</p>
             )}
 
+            {/* Top 5 list */}
             <ol style={{ paddingLeft: 0, listStyle: 'none', margin: 0 }}>
-              {top.map((article, i) => (
+              {!loading && top.map((article, i) => (
                 <li key={article.id} style={styles.topItem}>
-                  <span style={styles.topRank}>{i + 1}</span>
+                  {/* Rank badge */}
+                  <span style={{
+                    ...styles.topRank,
+                    backgroundColor: i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : '#6366f1',
+                  }}>
+                    {i + 1}
+                  </span>
+
                   <div style={{ flex: 1 }}>
-                    <Link href={`/articles/${article.id}`} style={styles.topLink}>
+                    <Link
+                      href={`/articles/${article.id}`}
+                      style={styles.topLink}
+                    >
                       {article.title}
                     </Link>
-                    <div style={styles.topViews}>👁 {article.view_count ?? 0} views</div>
+                    <div style={styles.topStats}>
+                      <span>👁 {(article.view_count ?? 0).toLocaleString()}</span>
+                      <span style={styles.statDot}>·</span>
+                      <span>❤️ {article.like_count ?? 0}</span>
+                    </div>
                   </div>
                 </li>
               ))}
             </ol>
           </div>
+
+          {/* Quick stats card */}
+          {!loading && recent.length > 0 && (
+            <div style={{ ...styles.sidebar, marginTop: 16 }}>
+              <h3 style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+                📊 Quick Stats
+              </h3>
+              <div style={styles.statRow}>
+                <span style={styles.statLabel}>Total Articles</span>
+                <span style={styles.statValue}>{recent.length}</span>
+              </div>
+              <div style={styles.statRow}>
+                <span style={styles.statLabel}>Total Views</span>
+                <span style={styles.statValue}>
+                  {recent.reduce((sum, a) => sum + (a.view_count ?? 0), 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
         </aside>
 
       </div>
@@ -153,6 +241,7 @@ const styles = {
     color: '#94a3b8',
     fontSize: '0.9rem',
     marginTop: 4,
+    marginBottom: 0,
   },
   writeBtn: {
     backgroundColor: '#6366f1',
@@ -162,6 +251,7 @@ const styles = {
     textDecoration: 'none',
     fontSize: '0.9rem',
     fontWeight: 600,
+    display: 'inline-block',
   },
   grid: {
     display: 'grid',
@@ -176,9 +266,11 @@ const styles = {
     fontSize: '1.1rem',
     fontWeight: 600,
     marginBottom: '1rem',
+    marginTop: 0,
     paddingBottom: '0.5rem',
     borderBottom: '1px solid #1e293b',
   },
+  // Article cards
   articleCard: {
     backgroundColor: '#1e293b',
     borderRadius: 10,
@@ -193,6 +285,9 @@ const styles = {
     fontWeight: 600,
     margin: '0 0 8px',
     lineHeight: 1.4,
+    wordBreak: 'break-word',
+    cursor: 'pointer',
+    // No truncation — shows full title
   },
   articleMeta: {
     display: 'flex',
@@ -209,12 +304,26 @@ const styles = {
     borderRadius: 99,
     fontSize: 12,
   },
-  dot: {
-    color: '#334155',
-  },
-  viewBadge: {
+  dot: { color: '#334155' },
+  viewBadge: { color: '#6366f1', fontSize: 12 },
+  readLink: {
     color: '#6366f1',
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: 500,
+    textDecoration: 'none',
+  },
+  // Skeleton loaders
+  skeletonCard: {
+    backgroundColor: '#1e293b',
+    borderRadius: 10,
+    padding: '1.25rem',
+    marginBottom: '1rem',
+    border: '1px solid #334155',
+  },
+  skeletonLine: {
+    backgroundColor: '#334155',
+    borderRadius: 4,
+    animation: 'pulse 1.5s ease-in-out infinite',
   },
   emptyState: {
     backgroundColor: '#1e293b',
@@ -224,11 +333,18 @@ const styles = {
     border: '1px dashed #334155',
     color: '#94a3b8',
   },
+  // Sidebar
   sidebar: {
     backgroundColor: '#1e293b',
     borderRadius: 10,
     padding: '1.25rem',
     border: '1px solid #334155',
+  },
+  sidebarSubtitle: {
+    color: '#475569',
+    fontSize: 11,
+    marginTop: -8,
+    marginBottom: 12,
   },
   topItem: {
     display: 'flex',
@@ -258,10 +374,25 @@ const styles = {
     fontWeight: 500,
     lineHeight: 1.4,
     display: 'block',
+    wordBreak: 'break-word',
   },
-  topViews: {
-    color: '#64748b',
+  topStats: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 4,
     fontSize: 11,
-    marginTop: 3,
+    color: '#64748b',
   },
+  statDot: { color: '#334155' },
+  statRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '6px 0',
+    borderBottom: '1px solid #1e293b',
+    fontSize: 13,
+  },
+  statLabel: { color: '#64748b' },
+  statValue: { color: '#a5b4fc', fontWeight: 600 },
 };
