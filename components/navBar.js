@@ -1,12 +1,4 @@
-// components/Navbar.js
-// FIXES:
-//   1. Notification panel closes when clicking outside
-//   2. Notification items correctly route to /articles/[id]
-//   3. "reply" notification type added to getNotifText
-//   4. User email pill shows username portion clearly
-//   5. Write link always visible when logged in
-
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { supabase } from '../lib/supabaseClient';
@@ -14,20 +6,6 @@ import { supabase } from '../lib/supabaseClient';
 export default function Navbar({ user, unreadCount = 0, notifications = [], onMarkRead }) {
   const router = useRouter();
   const [showNotifs, setShowNotifs] = useState(false);
-  const panelRef = useRef(null);
-
-  // Close panel when clicking anywhere outside of it
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target)) {
-        setShowNotifs(false);
-      }
-    };
-    if (showNotifs) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showNotifs]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -35,40 +13,21 @@ export default function Navbar({ user, unreadCount = 0, notifications = [], onMa
   };
 
   const toggleNotifs = () => {
-    const opening = !showNotifs;
-    setShowNotifs(opening);
-    // Mark as read when opening the panel (if there are unread ones)
-    if (opening && unreadCount > 0 && onMarkRead) {
+    setShowNotifs(v => !v);
+    if (!showNotifs && unreadCount > 0 && onMarkRead) {
       onMarkRead();
     }
   };
 
-  // Map notification type → human-readable text
   const getNotifText = (n) => {
-    const title = n.payload?.article_title || 'your article';
-    switch (n.type) {
-      case 'like':        return `❤️  Someone liked "${title}"`;
-      case 'comment':     return `💬 New comment on "${title}"`;
-      case 'reply':       return `↩️  Someone replied to your comment on "${title}"`;
-      case 'new_article': return `📰 New article published: "${title}"`;
-      default:            return `🔔 New notification`;
-    }
+    if (n.type === 'like')    return `❤️ Someone liked "${n.payload?.article_title || 'your article'}"`;
+    if (n.type === 'comment') return `💬 New comment on "${n.payload?.article_title || 'your article'}"`;
+    if (n.type === 'new_article') return `📰 New article published`;
+    return '🔔 New notification';
   };
-
-  // Navigate to the article when a notification is clicked
-  const handleNotifClick = (n) => {
-    setShowNotifs(false);
-    const articleId = n.payload?.article_id;
-    if (articleId) {
-      router.push(`/articles/${articleId}`);
-    }
-  };
-
-  const username = user?.email?.split('@')[0] ?? '';
 
   return (
     <nav style={styles.nav}>
-      {/* Brand */}
       <Link href="/dashboard" style={styles.brand}>
         🧠 ML Hub
       </Link>
@@ -76,92 +35,69 @@ export default function Navbar({ user, unreadCount = 0, notifications = [], onMa
       <div style={styles.right}>
         {user ? (
           <>
-            {/* Write article link */}
             <Link href="/articles/new" style={styles.writeLink}>
               ✏️ Write
             </Link>
 
-            {/* Notification bell + dropdown */}
-            <div style={{ position: 'relative' }} ref={panelRef}>
-              <button
-                onClick={toggleNotifs}
-                style={styles.bellBtn}
-                title="Notifications"
-                aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
-              >
+            
+
+            {/* Notification bell */}
+            <div style={{ position: 'relative' }}>
+              <button onClick={toggleNotifs} style={styles.bellBtn}>
                 🔔
                 {unreadCount > 0 && (
-                  <span style={styles.badge}>
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
+                  <span style={styles.badge}>{unreadCount > 9 ? '9+' : unreadCount}</span>
                 )}
               </button>
 
               {/* Dropdown panel */}
               {showNotifs && (
                 <div style={styles.notifPanel}>
-                  {/* Panel header */}
                   <div style={styles.notifHeader}>
-                    <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 14 }}>
-                      Notifications
-                    </span>
+                    <span style={{ color: '#e2e8f0', fontWeight: 600 }}>Notifications</span>
                     {notifications.length > 0 && (
-                      <button
-                        onClick={() => { onMarkRead?.(); setShowNotifs(false); }}
-                        style={styles.markReadBtn}
-                      >
-                        ✓ Mark all read
+                      <button onClick={onMarkRead} style={styles.markReadBtn}>
+                        Mark all read
                       </button>
                     )}
                   </div>
 
-                  {/* Notification list */}
                   {notifications.length === 0 ? (
-                    <div style={styles.noNotifs}>
-                      <div style={{ fontSize: 24, marginBottom: 6 }}>🔕</div>
-                      No new notifications
-                    </div>
+                    <div style={styles.noNotifs}>No new notifications</div>
                   ) : (
                     notifications.slice(0, 8).map(n => (
                       <div
                         key={n.id}
                         style={styles.notifItem}
-                        onClick={() => handleNotifClick(n)}
+                        onClick={() => {
+                          setShowNotifs(false);
+                          if (n.payload?.article_id) {
+                            router.push(`/articles/${n.payload.article_id}`);
+                          }
+                        }}
                       >
                         <div style={styles.notifText}>{getNotifText(n)}</div>
                         <div style={styles.notifTime}>
-                          {new Date(n.created_at).toLocaleDateString('en-US', {
-                            month: 'short', day: 'numeric',
-                          })}
+                          {new Date(n.created_at).toLocaleDateString()}
                         </div>
                       </div>
                     ))
-                  )}
-
-                  {notifications.length > 8 && (
-                    <div style={styles.notifFooter}>
-                      +{notifications.length - 8} more notifications
-                    </div>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Username pill */}
-            <span style={styles.userPill} title={user.email}>
-              {username}
+            {/* User email pill */}
+            <span style={styles.userPill}>
+              {user.email?.split('@')[0]}
             </span>
 
-            {/* Logout */}
             <button onClick={handleLogout} style={styles.logoutBtn}>
               Logout
             </button>
           </>
         ) : (
-          /* Not logged in */
-          <Link href="/auth" style={styles.loginLink}>
-            Sign In
-          </Link>
+          <Link href="/auth" style={styles.loginLink}>Sign In</Link>
         )}
       </div>
     </nav>
@@ -179,7 +115,7 @@ const styles = {
     justifyContent: 'space-between',
     position: 'sticky',
     top: 0,
-    zIndex: 200,
+    zIndex: 100,
   },
   brand: {
     color: '#a5b4fc',
@@ -201,7 +137,6 @@ const styles = {
     padding: '6px 12px',
     borderRadius: 7,
     border: '1px solid #334155',
-    transition: 'border-color 0.2s',
   },
   bellBtn: {
     background: 'none',
@@ -209,10 +144,9 @@ const styles = {
     cursor: 'pointer',
     fontSize: 18,
     position: 'relative',
-    padding: '4px 8px',
+    padding: '4px 6px',
     display: 'flex',
     alignItems: 'center',
-    borderRadius: 7,
   },
   badge: {
     position: 'absolute',
@@ -229,20 +163,18 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '0 3px',
-    lineHeight: 1,
   },
   notifPanel: {
     position: 'absolute',
-    top: 'calc(100% + 8px)',
+    top: 36,
     right: 0,
     backgroundColor: '#1e293b',
     border: '1px solid #334155',
     borderRadius: 10,
     width: 320,
-    maxHeight: 420,
-    overflowY: 'auto',
     boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
     zIndex: 999,
+    overflow: 'hidden',
   },
   notifHeader: {
     display: 'flex',
@@ -250,9 +182,6 @@ const styles = {
     justifyContent: 'space-between',
     padding: '12px 16px',
     borderBottom: '1px solid #334155',
-    position: 'sticky',
-    top: 0,
-    backgroundColor: '#1e293b',
   },
   markReadBtn: {
     background: 'none',
@@ -263,7 +192,7 @@ const styles = {
     fontWeight: 500,
   },
   noNotifs: {
-    padding: '24px 16px',
+    padding: '20px 16px',
     color: '#64748b',
     fontSize: 13,
     textAlign: 'center',
@@ -278,19 +207,11 @@ const styles = {
     color: '#cbd5e1',
     fontSize: 13,
     lineHeight: 1.5,
-    wordBreak: 'break-word',
   },
   notifTime: {
     color: '#475569',
     fontSize: 11,
     marginTop: 4,
-  },
-  notifFooter: {
-    padding: '10px 16px',
-    color: '#475569',
-    fontSize: 12,
-    textAlign: 'center',
-    borderTop: '1px solid #334155',
   },
   userPill: {
     backgroundColor: '#334155',
