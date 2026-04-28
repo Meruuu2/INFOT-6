@@ -1,40 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# ML Hub — Fixed File Placement Guide
 
-## Getting Started
+Copy each file from this download into your Next.js project exactly as shown below.
 
-First, run the development server:
+## File Structure
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+your-project/
+│
+├── pages/
+│   ├── _app.js                    ← REPLACE (was bare default)
+│   ├── _document.js               ← keep yours unchanged
+│   ├── index.js                   ← keep yours unchanged
+│   ├── auth.js                    ← keep yours unchanged
+│   ├── dashboard.js               ← REPLACE (client-side fetch fix)
+│   └── articles/
+│       ├── [id].js                ← REPLACE (imports SocialBar now)
+│       └── new.js                 ← NEW FILE (write article page)
+│
+├── components/
+│   ├── Navbar.js                  ← NEW FILE (notification bell)
+│   └── SocialBar.js               ← NEW FILE (was in components/)
+│
+├── hooks/
+│   └── useNotifications.js        ← NEW FILE (move from root)
+│
+└── lib/
+    ├── supabaseClient.js          ← unchanged
+    ├── db.js                      ← REPLACE (added createArticle)
+    └── share.js                   ← NEW FILE (move from root)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## What Was Fixed
 
-You can start editing the page by modifying `pages/index.js`. The page auto-updates as you edit the file.
+### 1. Articles not showing on dashboard
+**Cause:** `dashboard.js` used `getServerSideProps` which runs on the server
+without your user's auth token, so Supabase RLS blocked the query silently.
+**Fix:** Switched to `useEffect` client-side fetch — the browser sends the
+auth session automatically.
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.js`.
+### 2. SocialBar missing on article page
+**Cause:** `article.js` called `<SocialBar />` without importing it.
+**Fix:** Added `import SocialBar from '../../components/SocialBar'`.
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+### 3. _app.js had no auth, Navbar, or notifications
+**Cause:** It was the bare Next.js default — just `<Component {...pageProps} />`.
+**Fix:** Full auth state listener + `useNotifications` hook + `<Navbar />`.
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 4. Notifications not wired up
+**Cause:** `useNotifications` hook existed but was never called.
+**Fix:** Called in `_app.js` with the logged-in user's ID.
 
-## Learn More
+### 5. No way to write/create articles
+**Fix:** Added `pages/articles/new.js` + `createArticle()` in `db.js`.
 
-To learn more about Next.js, take a look at the following resources:
+## Supabase Dashboard Steps (required)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
+1. Run the SQL schema from the previous guide (if not done already)
+2. Go to **Database → Replication** and enable Realtime for:
+   - `notifications` table (INSERT)
+   - `articles` table (INSERT + UPDATE)
+3. Confirm your `.env.local` has both keys set correctly
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## .env.local
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+```
