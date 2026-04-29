@@ -1,6 +1,6 @@
 // pages/articles/[id].js
 import { useEffect } from 'react';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 
 export default function ArticlePage({ article }) {
   useEffect(() => {
