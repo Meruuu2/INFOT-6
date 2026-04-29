@@ -3,7 +3,7 @@ import "@/styles/globals.css";
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useNotifications } from '../hooks/useNotifications';
-import Navbar from '../components/Navbar';   // ✅ Fixed: PascalCase import + correct filename
+import Navbar from '../components/Navbar';  // ✅ Fixed: PascalCase import + correct filename
 import { Toaster } from 'react-hot-toast';
 
 
