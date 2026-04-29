@@ -9,17 +9,17 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
-import { createArticle } from '../../lib/db';
+import { createArticle } from '../../lib/db'; // We will fix this file next
 
 export default function NewArticle() {
   const router = useRouter();
-  const [user,    setUser]    = useState(null);
-  const [title,   setTitle]   = useState('');
+  const [user, setUser] = useState(null);
+  const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
+  const [error, setError] = useState('');
 
-  // Auth guard — redirect if not logged in
+  // Auth guard
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data?.user) {
@@ -28,45 +28,49 @@ export default function NewArticle() {
         setUser(data.user);
       }
     });
-  }, []);
+  }, [router]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
     // Client-side validation
-    if (!title.trim()) {
-      setError('Please enter a title.');
-      return;
-    }
-    if (!content.trim()) {
-      setError('Please enter some content.');
+    if (!title.trim() || !content.trim()) {
+      setError('Please fill out all fields.');
       return;
     }
 
     setLoading(true);
     try {
-      // Pull the session directly — this ensures author_id === auth.uid()
-      // which is required by RLS and matches profiles.id (same UUID)
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error('You must be logged in to publish.');
+      // 1. Get current session to ensure we have the correct UUID
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.user) {
+        throw new Error('You must be logged in to publish.');
+      }
 
-      const article = await createArticle(
-        title.trim(),    // exact title the user typed
-        content.trim(),  // exact content the user typed
-        session.user.id  // author_id = auth.uid() — fixes FK error
+      // 2. Insert the article using the helper in lib/db.js
+      // We pass the title, content, and the authenticated user's ID
+      await createArticle(
+        title.trim(),
+        content.trim(),
+        session.user.id
       );
 
-      // ✅ FIX: redirect to the new article page directly
-      // This lets you see your published article immediately with the correct title
-      router.push(`/articles/${article.id}`);
+      // 3. ✅ SUCCESS: Redirect to Dashboard instead of the specific article ID
+      // This avoids the 404 error and shows the updated newsfeed immediately
+     
+      router.push('/dashboard'); 
 
     } catch (err) {
+      console.error("Publishing failed:", err.message);
       setError(err.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  // ... rest of your return () block remains the same ...
 
   return (
     <div style={styles.page}>

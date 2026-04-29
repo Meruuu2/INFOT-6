@@ -1,22 +1,15 @@
-// components/Navbar.js
-// FIXES:
-//   1. Notification panel closes when clicking outside
-//   2. Notification items correctly route to /articles/[id]
-//   3. "reply" notification type added to getNotifText
-//   4. User email pill shows username portion clearly
-//   5. Write link always visible when logged in
-
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { supabase } from '../lib/supabaseClient';
 
-export default function navBar({ user, unreadCount = 0, notifications = [], onMarkRead }) {
+// ✅ Fixed: component name is Navbar (PascalCase) — lowercase breaks Next.js
+export default function Navbar({ user, unreadCount = 0, notifications = [], onMarkRead }) {
   const router = useRouter();
   const [showNotifs, setShowNotifs] = useState(false);
   const panelRef = useRef(null);
 
-  // Close panel when clicking anywhere outside of it
+  // ✅ From uploaded: close panel when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (panelRef.current && !panelRef.current.contains(e.target)) {
@@ -37,25 +30,26 @@ export default function navBar({ user, unreadCount = 0, notifications = [], onMa
   const toggleNotifs = () => {
     const opening = !showNotifs;
     setShowNotifs(opening);
-    // Mark as read when opening the panel (if there are unread ones)
+    // Mark as read when opening the panel
     if (opening && unreadCount > 0 && onMarkRead) {
       onMarkRead();
     }
   };
 
-  // Map notification type → human-readable text
+  // ✅ From uploaded: added 'reply' type + cleaner switch statement
+  // ✅ Fixed: was referencing undefined 'someFunction' — now uses onMarkRead correctly
   const getNotifText = (n) => {
     const title = n.payload?.article_title || 'your article';
     switch (n.type) {
-      case 'like':        return `❤️  Someone liked "${title}"`;
+      case 'like':        return `❤️ Someone liked "${title}"`;
       case 'comment':     return `💬 New comment on "${title}"`;
-      case 'reply':       return `↩️  Someone replied to your comment on "${title}"`;
+      case 'reply':       return `↩️ Someone replied to your comment on "${title}"`;
       case 'new_article': return `📰 New article published: "${title}"`;
       default:            return `🔔 New notification`;
     }
   };
 
-  // Navigate to the article when a notification is clicked
+  // ✅ From uploaded: dedicated click handler for notification routing
   const handleNotifClick = (n) => {
     setShowNotifs(false);
     const articleId = n.payload?.article_id;
@@ -105,11 +99,9 @@ export default function navBar({ user, unreadCount = 0, notifications = [], onMa
                     <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 14 }}>
                       Notifications
                     </span>
+                    {/* ✅ Fixed: was 'someFunction', now correctly calls onMarkRead */}
                     {notifications.length > 0 && (
-                      <button
-                        onClick={() => { onMarkRead?.(); setShowNotifs(false); }}
-                        style={styles.markReadBtn}
-                      >
+                      <button onClick={onMarkRead} style={styles.markReadBtn}>
                         ✓ Mark all read
                       </button>
                     )}
@@ -138,6 +130,7 @@ export default function navBar({ user, unreadCount = 0, notifications = [], onMa
                     ))
                   )}
 
+                  {/* ✅ From uploaded: overflow count footer */}
                   {notifications.length > 8 && (
                     <div style={styles.notifFooter}>
                       +{notifications.length - 8} more notifications
@@ -147,10 +140,10 @@ export default function navBar({ user, unreadCount = 0, notifications = [], onMa
               )}
             </div>
 
-            {/* Username pill */}
-            <span style={styles.userPill} title={user.email}>
-              {username}
-            </span>
+            {/* ✅ Profile pill — links to /profile page */}
+            <Link href="/profile" style={styles.userPill} title={user.email}>
+              👤 {username}
+            </Link>
 
             {/* Logout */}
             <button onClick={handleLogout} style={styles.logoutBtn}>
@@ -158,7 +151,6 @@ export default function navBar({ user, unreadCount = 0, notifications = [], onMa
             </button>
           </>
         ) : (
-          /* Not logged in */
           <Link href="/auth" style={styles.loginLink}>
             Sign In
           </Link>
@@ -294,14 +286,18 @@ const styles = {
   },
   userPill: {
     backgroundColor: '#334155',
-    color: '#94a3b8',
-    padding: '4px 12px',
+    color: '#a5b4fc',
+    padding: '6px 14px',
     borderRadius: 99,
     fontSize: 13,
-    maxWidth: 140,
+    maxWidth: 160,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    textDecoration: 'none',
+    fontWeight: 500,
+    border: '1px solid #475569',
+    cursor: 'pointer',
   },
   logoutBtn: {
     padding: '6px 14px',

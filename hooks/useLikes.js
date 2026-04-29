@@ -1,59 +1,47 @@
-// hooks/useLike.js
+// hooks/useLikes.js
+// FIX: Old version queried a 'likes' table that doesn't exist.
+// Now uses hasLiked / likeArticle / unlikeArticle / getLikeCount from lib/db.js
+// which all correctly query the 'interactions' table with type='like'.
+
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { hasLiked, likeArticle, unlikeArticle, getLikeCount } from '../lib/db';
 
 export function useLike(articleId, userId) {
-  const [liked, setLiked] = useState(false);
+  const [liked,   setLiked]   = useState(false);
+  const [count,   setCount]   = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Check if user already liked this article
+  // Load like count for everyone
   useEffect(() => {
-    if (!userId) return;
-    supabase
-      .from('likes')
-      .select('user_id')
-      .eq('user_id', userId)
-      .eq('article_id', articleId)
-      .single()
-      .then(({ data }) => setLiked(!!data));
+    if (!articleId) return;
+    getLikeCount(articleId).then(setCount);
+  }, [articleId]);
+
+  // Load personal liked state only if logged in
+  useEffect(() => {
+    if (!articleId || !userId) return;
+    hasLiked(articleId, userId).then(setLiked);
   }, [articleId, userId]);
 
   const toggleLike = async () => {
     if (!userId || loading) return;
     setLoading(true);
-
-    if (liked) {
-      // Unlike
-      await supabase
-        .from('likes')
-        .delete()
-        .match({ user_id: userId, article_id: articleId });
-      setLiked(false);
-    } else {
-      // Like + create notification for article author
-      await supabase
-        .from('likes')
-        .insert({ user_id: userId, article_id: articleId });
-
-      // Fetch author to notify them
-      const { data: article } = await supabase
-        .from('articles')
-        .select('author_id, title')
-        .eq('id', articleId)
-        .single();
-
-      if (article && article.author_id !== userId) {
-        await supabase.from('notifications').insert({
-          recipient_id: article.author_id,
-          actor_id: userId,
-          type: 'like',
-          payload: { article_id: articleId, title: article.title },
-        });
+    try {
+      if (liked) {
+        await unlikeArticle(articleId, userId);
+        setLiked(false);
+        setCount(prev => Math.max(0, prev - 1));
+      } else {
+        await likeArticle(articleId, userId);
+        setLiked(true);
+        setCount(prev => prev + 1);
       }
-      setLiked(true);
+    } catch (err) {
+      console.error('[useLike] toggleLike error:', err.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  return { liked, toggleLike, loading };
+  return { liked, count, toggleLike, loading };
 }

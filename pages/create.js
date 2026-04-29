@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
+import { toast } from 'react-hot-toast'; // ✅ This replaces the browser popup
 
 export default function CreateArticle() {
   const router = useRouter();
@@ -14,11 +15,18 @@ export default function CreateArticle() {
       if (!data?.user) router.push('/auth');
       else setUser(data.user);
     });
-  }, []);
+  }, [router]);
 
   const handlePublish = async (e) => {
+    // ✅ Crucial: Added 'e' to the function parameters to prevent page refresh
     e.preventDefault();
-    if (!title || !content) return alert("Please fill in all fields");
+
+    if (!title || !content) {
+      // ✅ Using toast instead of alert()
+      return toast.error("Please fill in all fields", {
+        style: { background: '#1e293b', color: '#fff' }
+      });
+    }
 
     setLoading(true);
     const { error } = await supabase
@@ -33,9 +41,21 @@ export default function CreateArticle() {
       ]);
 
     if (error) {
-      alert(error.message);
+      toast.error("Failed to publish: " + error.message);
     } else {
-      // Redirect to main dashboard to see the new post
+      // ✅ Success notification styled to match your ML Hub theme
+      toast.success("Article published successfully!", {
+        style: {
+          background: '#1e293b',
+          color: '#fff',
+          border: '1px solid #334155',
+        },
+        iconTheme: {
+          primary: '#6366f1',
+          secondary: '#fff',
+        },
+      });
+
       router.push('/dashboard');
     }
     setLoading(false);

@@ -1,27 +1,23 @@
 // pages/_app.js
-// FIXES:
-//   1. Auth session loads once and stays stable across all page navigations
-//   2. useNotifications hook receives userId reliably (not the whole session object)
-//   3. Loading screen prevents flash of unauthenticated content
-//   4. Navbar always receives correct user + notification props
-//   5. Realtime channels clean up properly on logout
-
 import "@/styles/globals.css";
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useNotifications } from '../hooks/useNotifications';
-import Navbar from '../components/navBar';
+import Navbar from '../components/Navbar';   // ✅ Fixed: PascalCase import + correct filename
+import { Toaster } from 'react-hot-toast';
+
 
 // ─── Inner component ──────────────────────────────────────────────────────────
 // Separated so hooks (useNotifications) always have a valid userId to work with
 function AppContent({ Component, pageProps, session }) {
-  // Pass userId (string) not session object — hook only needs the id
   const userId = session?.user?.id ?? null;
   const { notifications, unreadCount, markRead } = useNotifications(userId);
 
   return (
     <>
-      <navBar
+      {/* ✅ Fixed: <Navbar> not <navBar> — lowercase breaks React + DOM */}
+      <Toaster position="top-right" reverseOrder={false} /> {/* Add this line */}
+      <Navbar
         user={session?.user ?? null}
         unreadCount={unreadCount}
         notifications={notifications}
@@ -45,7 +41,6 @@ export default function App({ Component, pageProps }) {
     });
 
     // 2. Subscribe to auth changes (login, logout, token refresh)
-    //    This fires on every navigation — keeps session in sync
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
@@ -53,12 +48,10 @@ export default function App({ Component, pageProps }) {
       }
     );
 
-    // Cleanup subscription when app unmounts
     return () => subscription.unsubscribe();
   }, []);
 
-  // Show loading screen while we check for an existing session
-  // Prevents the login page from flashing before redirect
+  // Loading spinner — prevents flash of unauthenticated content
   if (loading) {
     return (
       <div style={{

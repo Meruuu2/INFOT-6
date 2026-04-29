@@ -129,10 +129,7 @@ export default function Dashboard() {
 
               {/* Read article link */}
               <div style={{ marginTop: 10 }}>
-                <Link
-                  href={`/articles/${article.id}`}
-                  style={styles.readLink}
-                >
+                <Link href={`/articles/${article.id}`}>
                   Read article →
                 </Link>
               </div>
