@@ -1,341 +1,249 @@
-// pages/auth.js
-// FIXES:
-//   1. Sign up now ensures a profile row exists after registration
-//   2. Login redirects to /dashboard correctly
-//   3. Error messages are user-friendly
-//   4. Handles "Email already registered" case gracefully
-//   5. Back to home link works
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 
 export default function Auth() {
   const router = useRouter();
+  const [mode, setMode] = useState('login');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [isError, setIsError] = useState(false);
 
-  const [email,    setEmail]    = useState('');
+  // Verification & Timer States
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [canResend, setCanResend] = useState(true);
+  const [timer, setTimer] = useState(0);
+
+  // Password Visibility State
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Form States
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [message,  setMessage]  = useState('');
-  const [isError,  setIsError]  = useState(false);
-  const [loading,  setLoading]  = useState(false);
-  const [mode,     setMode]     = useState('login'); // 'login' | 'signup'
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const showMsg = (text, error = false) => {
     setMessage(text);
     setIsError(error);
   };
 
-  // ── Sign Up ────────────────────────────────────────────────────
-  const handleSignUp = async () => {
-    if (!email || !password) {
-      return showMsg('Please enter both email and password.', true);
-    }
-    if (password.length < 6) {
-      return showMsg('Password must be at least 6 characters.', true);
-    }
-
-    setLoading(true);
-    setMessage('');
-
-    const { data, error } = await supabase.auth.signUp({ email, password });
-
-    if (error) {
-      showMsg(error.message, true);
-    } else if (data?.user && !data?.session) {
-      // Email confirmation required
-      showMsg('✅ Account created! Check your email to confirm, then log in.', false);
-    } else if (data?.session) {
-      // Auto-confirmed (email confirmations disabled in Supabase)
-      // Manually ensure the profile row exists (trigger may not have fired yet)
-      await ensureProfile(data.user);
-      showMsg('✅ Account created! Redirecting...', false);
-      setTimeout(() => router.push('/dashboard'), 1200);
-    }
-
-    setLoading(false);
+  // --- Resend Timer Logic ---
+  const startResendTimer = () => {
+    setCanResend(false);
+    setTimer(300); // 5 minutes in seconds
+    const interval = setInterval(() => {
+      setTimer((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setCanResend(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
   };
 
-  // ── Log In ─────────────────────────────────────────────────────
-  const handleLogin = async () => {
-    if (!email || !password) {
-      return showMsg('Please enter both email and password.', true);
-    }
-
+  const handleSignUp = async () => {
+    if (password !== confirmPassword) return showMsg("Passwords do not match", true);
     setLoading(true);
-    setMessage('');
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: { 
+        data: { 
+          first_name: firstName, 
+          last_name: lastName,
+          phone_number: phone 
+        } 
+      }
     });
 
     if (error) {
-      // Make error messages friendlier
-      if (error.message.includes('Invalid login')) {
-        showMsg('Incorrect email or password. Please try again.', true);
-      } else {
-        showMsg(error.message, true);
-      }
+      showMsg(error.message, true);
     } else {
-      // Ensure profile exists (catches users who signed up before trigger was added)
+      // Ensure profile is created in DB[cite: 1]
       await ensureProfile(data.user);
-      showMsg('✅ Login successful! Redirecting...', false);
-      setTimeout(() => router.push('/dashboard'), 1000);
+      setIsVerifying(true);
+      showMsg("✅ Code sent! Please check your Gmail.", false);
+      startResendTimer();
     }
-
     setLoading(false);
   };
 
-  // ── Ensure profile row exists ──────────────────────────────────
-  // This is the key fix: after login/signup, we upsert a profile row
-  // using the user's email. This prevents the NULL username problem
-  // that causes the FK errors on interactions.
-  const ensureProfile = async (user) => {
-    if (!user) return;
-    try {
-      const username = user.email.split('@')[0];
-      await supabase.from('profiles').upsert({
-        id:        user.id,
-        username:  username,
-        full_name: username,
-      }, {
-        onConflict:        'id',
-        ignoreDuplicates:  false, // update if exists
-      });
-    } catch (err) {
-      console.warn('ensureProfile error (non-critical):', err.message);
+  const handleVerifyCode = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: otpCode,
+      type: 'signup',
+    });
+
+    if (error) {
+      showMsg("OTP is wrong or has expired.", true);
+    } else {
+      showMsg("Success! Redirecting to Log In...", false);
+      setTimeout(() => {
+        setMode('login');
+        setIsVerifying(false);
+        setMessage('');
+        setOtpCode('');
+      }, 2000);
     }
+    setLoading(false);
   };
 
-  // ── Handle Enter key ───────────────────────────────────────────
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      mode === 'login' ? handleLogin() : handleSignUp();
+  const handleResendCode = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+    });
+    
+    if (error) {
+      showMsg(error.message, true);
+    } else {
+      showMsg("✅ New code sent!", false);
+      startResendTimer();
     }
+    setLoading(false);
+  };
+
+  const ensureProfile = async (user) => {
+    if (!user) return;
+    await supabase.from('profiles').upsert({
+      id: user.id,
+      username: email.split('@')[0],
+      full_name: `${firstName} ${lastName}`,
+    });
   };
 
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-
-        {/* Logo / Title */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>🧠</div>
-          <h2 style={styles.title}>ML Hub</h2>
-          <p style={styles.subtitle}>
-            {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
-          </p>
-        </div>
-
-        {/* Mode toggle tabs */}
         <div style={styles.tabRow}>
-          <button
-            style={{ ...styles.tab, ...(mode === 'login' ? styles.tabActive : {}) }}
-            onClick={() => { setMode('login'); setMessage(''); }}
+          <button 
+            onClick={() => { setMode('login'); setIsVerifying(false); }} 
+            style={mode === 'login' ? styles.tabActive : styles.tab}
           >
             Log In
           </button>
-          <button
-            style={{ ...styles.tab, ...(mode === 'signup' ? styles.tabActive : {}) }}
-            onClick={() => { setMode('signup'); setMessage(''); }}
+          <button 
+            onClick={() => { setMode('signup'); setIsVerifying(false); }} 
+            style={mode === 'signup' ? styles.tabActive : styles.tab}
           >
             Sign Up
           </button>
         </div>
 
-        {/* Email */}
-        <label style={styles.label}>Email address</label>
-        <input
-          style={styles.input}
-          type="email"
-          placeholder="you@example.com"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          onKeyDown={handleKeyDown}
-          autoComplete="email"
-        />
-
-        {/* Password */}
-        <label style={styles.label}>Password</label>
-        <input
-          style={styles.input}
-          type="password"
-          placeholder={mode === 'signup' ? 'At least 6 characters' : 'Your password'}
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          onKeyDown={handleKeyDown}
-          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-        />
-
-        {/* Message */}
-        {message && (
-          <div style={{
-            ...styles.message,
-            backgroundColor: isError ? '#450a0a' : '#052e16',
-            border: `1px solid ${isError ? '#7f1d1d' : '#14532d'}`,
-            color: isError ? '#f87171' : '#4ade80',
-          }}>
-            {message}
+        {mode === 'signup' && (
+          <div style={styles.row}>
+            <input style={styles.halfInput} placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} />
+            <input style={styles.halfInput} placeholder="Last Name" value={lastName} onChange={e => setLastName(e.target.value)} />
           </div>
         )}
 
-        {/* Action button */}
-        <button
-          style={{
-            ...styles.primaryBtn,
-            opacity: loading ? 0.7 : 1,
-            cursor: loading ? 'not-allowed' : 'pointer',
-          }}
-          onClick={mode === 'login' ? handleLogin : handleSignUp}
-          disabled={loading}
-        >
-          {loading
-            ? '⏳ Please wait...'
-            : mode === 'login' ? '→ Log In' : '→ Create Account'
-          }
-        </button>
+        {/* Email Row[cite: 1] */}
+        <div style={styles.verifyRow}>
+          <input style={styles.inputFlex} placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value)} />
+          {mode === 'signup' && !isVerifying && (
+            <button style={styles.verifyBtn} onClick={handleSignUp} disabled={loading}>Verify</button>
+          )}
+        </div>
 
-        {/* Switch mode */}
-        <p style={styles.switchText}>
-          {mode === 'login'
-            ? "Don't have an account? "
-            : 'Already have an account? '
-          }
-          <button
-            style={styles.switchBtn}
-            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setMessage(''); }}
-          >
-            {mode === 'login' ? 'Sign up' : 'Log in'}
+        {/* OTP Demand Section - Appears after clicking Verify[cite: 1] */}
+        {mode === 'signup' && isVerifying && (
+          <div style={styles.otpSection}>
+            <input 
+              style={styles.input} 
+              placeholder="Enter 6-digit OTP" 
+              value={otpCode} 
+              onChange={(e) => setOtpCode(e.target.value)} 
+              maxLength={6} 
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={styles.resendText}>
+                {canResend ? (
+                  <span onClick={handleResendCode} style={styles.link}>Resend Code</span>
+                ) : (
+                  `Resend in ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}`
+                )}
+              </p>
+              <button style={styles.confirmBtn} onClick={handleVerifyCode} disabled={loading}>
+                Confirm OTP
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Password Inputs */}
+        <div style={{ position: 'relative', width: '100%' }}>
+          <input 
+            style={styles.input} 
+            type={showPassword ? "text" : "password"} 
+            placeholder="Password" 
+            value={password} 
+            onChange={e => setPassword(e.target.value)} 
+          />
+          <button type="button" onClick={() => setShowPassword(!showPassword)} style={styles.iconBtn}>
+            {showPassword ? '🙈' : '👁️'}
           </button>
-        </p>
+        </div>
+        
+        {mode === 'signup' && (
+          <input style={styles.input} type="password" placeholder="Confirm Password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+        )}
 
-        {/* Back link */}
-        <p
-          style={styles.backLink}
-          onClick={() => router.push('/')}
+        <button 
+          style={styles.primaryBtn} 
+          onClick={mode === 'login' ? () => {} : handleSignUp}
+          disabled={loading || (mode === 'signup' && !isVerifying)}
         >
-          ← Back to Home
-        </p>
-
+          {loading ? 'Processing...' : mode === 'login' ? 'Login' : 'Create Account'}
+        </button>
+        
+        {message && <div style={{...styles.message, color: isError ? '#f87171' : '#4ade80'}}>{message}</div>}
       </div>
     </div>
   );
 }
 
 const styles = {
-  container: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0f172a',
-    padding: '20px',
+  container: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' },
+  card: { backgroundColor: '#1e293b', padding: '2.5rem', borderRadius: 12, width: '100%', maxWidth: 450 },
+  row: { display: 'flex', gap: '10px', marginBottom: '16px' },
+  halfInput: { flex: 1, padding: '12px', borderRadius: 8, border: '1px solid #334155', backgroundColor: '#0f172a', color: '#fff' },
+  verifyRow: { display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center' },
+  inputFlex: { flex: 1, padding: '12px', borderRadius: 8, border: '1px solid #334155', backgroundColor: '#0f172a', color: '#fff' },
+  verifyBtn: { padding: '10px 15px', backgroundColor: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' },
+  input: { width: '100%', padding: '12px', marginBottom: '16px', borderRadius: 8, border: '1px solid #334155', backgroundColor: '#0f172a', color: '#fff', boxSizing: 'border-box' },
+  primaryBtn: { width: '100%', padding: '13px', backgroundColor: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' },
+  tabRow: { display: 'flex', marginBottom: '20px', border: '1px solid #334155', borderRadius: 8, overflow: 'hidden' },
+  tab: { flex: 1, padding: '10px', background: '#0f172a', color: '#64748b', border: 'none', cursor: 'pointer' },
+  tabActive: { flex: 1, padding: '10px', background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer' },
+  iconBtn: { position: 'absolute', right: '12px', top: '12px', background: 'none', border: 'none', cursor: 'pointer' },
+  message: { marginTop: '16px', textAlign: 'center', fontSize: '14px' },
+  // New Styles Integrated[cite: 1]
+  otpSection: { 
+    backgroundColor: '#0f172a', 
+    padding: '15px', 
+    borderRadius: 8, 
+    marginBottom: '16px', 
+    border: '1px dashed #6366f1' 
   },
-  card: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: '2.5rem',
-    maxWidth: 420,
-    width: '100%',
-    boxShadow: '0 10px 40px rgba(0,0,0,0.4)',
-    border: '1px solid #334155',
-  },
-  title: {
-    color: '#f1f5f9',
-    fontSize: '1.6rem',
-    margin: '0 0 4px',
-    fontWeight: 700,
-  },
-  subtitle: {
-    color: '#94a3b8',
-    fontSize: '0.875rem',
-    margin: 0,
-  },
-  tabRow: {
-    display: 'flex',
-    gap: 0,
-    marginBottom: 24,
-    borderRadius: 8,
-    overflow: 'hidden',
-    border: '1px solid #334155',
-  },
-  tab: {
-    flex: 1,
-    padding: '10px',
-    border: 'none',
-    backgroundColor: '#0f172a',
-    color: '#64748b',
-    fontSize: 14,
-    fontWeight: 600,
+  confirmBtn: { 
+    padding: '8px 16px', 
+    backgroundColor: '#10b981', 
+    color: '#fff', 
+    border: 'none', 
+    borderRadius: 6, 
     cursor: 'pointer',
-    transition: 'all 0.2s',
+    fontSize: '12px'
   },
-  tabActive: {
-    backgroundColor: '#6366f1',
-    color: '#fff',
-  },
-  label: {
-    display: 'block',
-    color: '#94a3b8',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-  },
-  input: {
-    width: '100%',
-    padding: '12px 14px',
-    marginBottom: 16,
-    borderRadius: 8,
-    border: '1px solid #334155',
-    backgroundColor: '#0f172a',
-    color: '#f1f5f9',
-    fontSize: '1rem',
-    boxSizing: 'border-box',
-    outline: 'none',
-    transition: 'border-color 0.2s',
-  },
-  message: {
-    padding: '10px 14px',
-    borderRadius: 8,
-    fontSize: '0.875rem',
-    marginBottom: 16,
-    lineHeight: 1.5,
-  },
-  primaryBtn: {
-    width: '100%',
-    padding: '13px',
-    border: 'none',
-    borderRadius: 8,
-    backgroundColor: '#6366f1',
-    color: '#fff',
-    fontSize: '1rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    marginBottom: 16,
-    transition: 'opacity 0.2s',
-  },
-  switchText: {
-    textAlign: 'center',
-    color: '#64748b',
-    fontSize: '0.875rem',
-    margin: '0 0 16px',
-  },
-  switchBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#6366f1',
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontSize: '0.875rem',
-    padding: 0,
-  },
-  backLink: {
-    textAlign: 'center',
-    color: '#475569',
-    fontSize: '0.8rem',
-    cursor: 'pointer',
-    margin: 0,
-  },
+  resendText: { fontSize: '12px', color: '#94a3b8' },
+  link: { color: '#6366f1', cursor: 'pointer', textDecoration: 'underline' }
 };
