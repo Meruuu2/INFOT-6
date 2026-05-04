@@ -1,140 +1,93 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
+import { toast } from 'react-hot-toast';
 
 export default function Auth() {
   const router = useRouter();
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState('signup'); // Default to signup as per your image
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [isError, setIsError] = useState(false);
-
-  // Verification & Timer States
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [canResend, setCanResend] = useState(true);
-  const [timer, setTimer] = useState(0);
-
-  // Password Visibility State
-  const [showPassword, setShowPassword] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   // Form States
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  const showMsg = (text, error = false) => {
-    setMessage(text);
-    setIsError(error);
-  };
+  // Validation
+  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  // --- Resend Timer Logic ---
-  const startResendTimer = () => {
-    setCanResend(false);
-    setTimer(300); // 5 minutes in seconds
-    const interval = setInterval(() => {
-      setTimer((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setCanResend(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+  const handleVerifyEmail = async () => {
+    setErrorMsg('');
+    if (!isValidEmail(email)) {
+      setErrorMsg('Unable to validate email address: invalid format');
+      return;
+    }
+    toast.success('Email format valid! Please proceed to Create Account.');
   };
 
   const handleSignUp = async () => {
-    if (password !== confirmPassword) return showMsg("Passwords do not match", true);
-    setLoading(true);
+    setErrorMsg('');
+    if (!isValidEmail(email)) {
+      setErrorMsg('Unable to validate email address: invalid format');
+      return;
+    }
+    if (password.length < 8 || password.length > 10) {
+      setErrorMsg('Password must be between 8-10 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setErrorMsg('Passwords do not match.');
+      return;
+    }
 
-    const { data, error } = await supabase.auth.signUp({
+    setLoading(true);
+    const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { 
-        data: { 
-          first_name: firstName, 
-          last_name: lastName,
-          phone_number: phone 
-        } 
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth`,
+        data: { first_name: firstName, last_name: lastName }
       }
     });
 
     if (error) {
-      showMsg(error.message, true);
+      setErrorMsg(error.message);
     } else {
-      // Ensure profile is created in DB[cite: 1]
-      await ensureProfile(data.user);
-      setIsVerifying(true);
-      showMsg("✅ Code sent! Please check your Gmail.", false);
-      startResendTimer();
+      toast.success('Verification email sent to Gmail!');
+      setMode('login');
     }
     setLoading(false);
   };
 
-  const handleVerifyCode = async () => {
+  const handleLogin = async () => {
     setLoading(true);
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token: otpCode,
-      type: 'signup',
-    });
-
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      showMsg("OTP is wrong or has expired.", true);
+      setErrorMsg(error.message);
     } else {
-      showMsg("Success! Redirecting to Log In...", false);
-      setTimeout(() => {
-        setMode('login');
-        setIsVerifying(false);
-        setMessage('');
-        setOtpCode('');
-      }, 2000);
+      router.push('/dashboard');
     }
     setLoading(false);
-  };
-
-  const handleResendCode = async () => {
-    setLoading(true);
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: email,
-    });
-    
-    if (error) {
-      showMsg(error.message, true);
-    } else {
-      showMsg("✅ New code sent!", false);
-      startResendTimer();
-    }
-    setLoading(false);
-  };
-
-  const ensureProfile = async (user) => {
-    if (!user) return;
-    await supabase.from('profiles').upsert({
-      id: user.id,
-      username: email.split('@')[0],
-      full_name: `${firstName} ${lastName}`,
-    });
   };
 
   return (
     <div style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.tabRow}>
+      <div style={styles.authCard}>
+        {/* Toggle Tabs */}
+        <div style={styles.tabContainer}>
           <button 
-            onClick={() => { setMode('login'); setIsVerifying(false); }} 
-            style={mode === 'login' ? styles.tabActive : styles.tab}
+            onClick={() => setMode('login')} 
+            style={{...styles.tab, backgroundColor: mode === 'login' ? '#6366f1' : 'transparent', color: mode === 'login' ? 'white' : '#64748b'}}
           >
             Log In
           </button>
           <button 
-            onClick={() => { setMode('signup'); setIsVerifying(false); }} 
-            style={mode === 'signup' ? styles.tabActive : styles.tab}
+            onClick={() => setMode('signup')} 
+            style={{...styles.tab, backgroundColor: mode === 'signup' ? '#6366f1' : 'transparent', color: mode === 'signup' ? 'white' : '#64748b'}}
           >
             Sign Up
           </button>
@@ -142,108 +95,98 @@ export default function Auth() {
 
         {mode === 'signup' && (
           <div style={styles.row}>
-            <input style={styles.halfInput} placeholder="First Name" value={firstName} onChange={e => setFirstName(e.target.value)} />
-            <input style={styles.halfInput} placeholder="Last Name" value={lastName} onChange={e => setLastName(e.target.value)} />
+            <input style={styles.halfInput} placeholder="First Name" onChange={(e) => setFirstName(e.target.value)} />
+            <input style={styles.halfInput} placeholder="Last Name" onChange={(e) => setLastName(e.target.value)} />
           </div>
         )}
 
-        {/* Email Row[cite: 1] */}
-        <div style={styles.verifyRow}>
-          <input style={styles.inputFlex} placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value)} />
-          {mode === 'signup' && !isVerifying && (
-            <button style={styles.verifyBtn} onClick={handleSignUp} disabled={loading}>Verify</button>
+        <div style={styles.row}>
+          <input 
+            style={styles.fullInput} 
+            placeholder="Email Address" 
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          {mode === 'signup' && (
+            <button style={styles.verifyBtn} onClick={handleVerifyEmail}>Verify</button>
           )}
         </div>
 
-        {/* OTP Demand Section - Appears after clicking Verify[cite: 1] */}
-        {mode === 'signup' && isVerifying && (
-          <div style={styles.otpSection}>
-            <input 
-              style={styles.input} 
-              placeholder="Enter 6-digit OTP" 
-              value={otpCode} 
-              onChange={(e) => setOtpCode(e.target.value)} 
-              maxLength={6} 
-            />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <p style={styles.resendText}>
-                {canResend ? (
-                  <span onClick={handleResendCode} style={styles.link}>Resend Code</span>
-                ) : (
-                  `Resend in ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}`
-                )}
-              </p>
-              <button style={styles.confirmBtn} onClick={handleVerifyCode} disabled={loading}>
-                Confirm OTP
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Password Inputs */}
-        <div style={{ position: 'relative', width: '100%' }}>
+        <div style={styles.passwordContainer}>
           <input 
-            style={styles.input} 
+            style={styles.noBorderInput} 
             type={showPassword ? "text" : "password"} 
             placeholder="Password" 
-            value={password} 
-            onChange={e => setPassword(e.target.value)} 
+            onChange={(e) => setPassword(e.target.value)}
           />
-          <button type="button" onClick={() => setShowPassword(!showPassword)} style={styles.iconBtn}>
-            {showPassword ? '🙈' : '👁️'}
-          </button>
+          <span style={{cursor: 'pointer'}} onClick={() => setShowPassword(!showPassword)}>🙈</span>
         </div>
-        
+
         {mode === 'signup' && (
-          <input style={styles.input} type="password" placeholder="Confirm Password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+          <input 
+            style={styles.fullInput} 
+            type="password" 
+            placeholder="Confirm Password" 
+            onChange={(e) => setConfirmPassword(e.target.value)}
+          />
         )}
 
         <button 
-          style={styles.primaryBtn} 
-          onClick={mode === 'login' ? () => {} : handleSignUp}
-          disabled={loading || (mode === 'signup' && !isVerifying)}
+          style={styles.actionBtn} 
+          onClick={mode === 'login' ? handleLogin : handleSignUp}
+          disabled={loading}
         >
           {loading ? 'Processing...' : mode === 'login' ? 'Login' : 'Create Account'}
         </button>
-        
-        {message && <div style={{...styles.message, color: isError ? '#f87171' : '#4ade80'}}>{message}</div>}
+
+        {errorMsg && <p style={styles.errorText}>{errorMsg}</p>}
       </div>
     </div>
   );
 }
 
 const styles = {
-  container: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' },
-  card: { backgroundColor: '#1e293b', padding: '2.5rem', borderRadius: 12, width: '100%', maxWidth: 450 },
-  row: { display: 'flex', gap: '10px', marginBottom: '16px' },
-  halfInput: { flex: 1, padding: '12px', borderRadius: 8, border: '1px solid #334155', backgroundColor: '#0f172a', color: '#fff' },
-  verifyRow: { display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center' },
-  inputFlex: { flex: 1, padding: '12px', borderRadius: 8, border: '1px solid #334155', backgroundColor: '#0f172a', color: '#fff' },
-  verifyBtn: { padding: '10px 15px', backgroundColor: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' },
-  input: { width: '100%', padding: '12px', marginBottom: '16px', borderRadius: 8, border: '1px solid #334155', backgroundColor: '#0f172a', color: '#fff', boxSizing: 'border-box' },
-  primaryBtn: { width: '100%', padding: '13px', backgroundColor: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold' },
-  tabRow: { display: 'flex', marginBottom: '20px', border: '1px solid #334155', borderRadius: 8, overflow: 'hidden' },
-  tab: { flex: 1, padding: '10px', background: '#0f172a', color: '#64748b', border: 'none', cursor: 'pointer' },
-  tabActive: { flex: 1, padding: '10px', background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer' },
-  iconBtn: { position: 'absolute', right: '12px', top: '12px', background: 'none', border: 'none', cursor: 'pointer' },
-  message: { marginTop: '16px', textAlign: 'center', fontSize: '14px' },
-  // New Styles Integrated[cite: 1]
-  otpSection: { 
-    backgroundColor: '#0f172a', 
-    padding: '15px', 
-    borderRadius: 8, 
-    marginBottom: '16px', 
-    border: '1px dashed #6366f1' 
+  container: {
+    display: 'flex', justifyContent: 'center', alignItems: 'center',
+    minHeight: '100vh', backgroundColor: '#0f172a',
   },
-  confirmBtn: { 
-    padding: '8px 16px', 
-    backgroundColor: '#10b981', 
-    color: '#fff', 
-    border: 'none', 
-    borderRadius: 6, 
-    cursor: 'pointer',
-    fontSize: '12px'
+  authCard: {
+    backgroundColor: '#1e293b', padding: '40px', borderRadius: '12px',
+    width: '100%', maxWidth: '450px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
   },
-  resendText: { fontSize: '12px', color: '#94a3b8' },
-  link: { color: '#6366f1', cursor: 'pointer', textDecoration: 'underline' }
+  tabContainer: {
+    display: 'flex', backgroundColor: '#0f172a', borderRadius: '8px',
+    padding: '4px', marginBottom: '25px',
+  },
+  tab: {
+    flex: 1, padding: '10px', border: 'none', borderRadius: '6px',
+    cursor: 'pointer', transition: '0.3s', fontWeight: '500',
+  },
+  row: { display: 'flex', gap: '10px', marginBottom: '15px' },
+  halfInput: {
+    flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #334155',
+    backgroundColor: '#0f172a', color: 'white',
+  },
+  fullInput: {
+    flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #334155',
+    backgroundColor: '#0f172a', color: 'white', width: '100%',
+  },
+  verifyBtn: {
+    backgroundColor: '#6366f1', color: 'white', border: 'none',
+    borderRadius: '8px', padding: '0 20px', cursor: 'pointer',
+  },
+  passwordContainer: {
+    display: 'flex', alignItems: 'center', padding: '12px',
+    borderRadius: '8px', border: '1px solid #334155',
+    backgroundColor: '#0f172a', color: 'white', marginBottom: '15px',
+  },
+  noBorderInput: {
+    flex: 1, border: 'none', background: 'transparent', color: 'white', outline: 'none',
+  },
+  actionBtn: {
+    width: '100%', padding: '14px', borderRadius: '8px', border: 'none',
+    backgroundColor: '#6366f1', color: 'white', fontWeight: 'bold',
+    cursor: 'pointer', marginTop: '10px',
+  },
+  errorText: { color: '#f87171', fontSize: '14px', textAlign: 'center', marginTop: '15px' }
 };
