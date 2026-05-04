@@ -1,13 +1,5 @@
-// hooks/useNotifications.js
-// FIXES:
-//   1. Channels are cleaned up properly when userId changes or component unmounts
-//   2. Article channel uses a unique name to avoid conflicts across sessions
-//   3. Synthetic "new article" notification is correctly structured
-//   4. markRead resets both state values atomically
-
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { getUnreadNotifications, markAllNotificationsRead } from '../lib/db';
 
 export function useNotifications(userId) {
   const [notifications, setNotifications] = useState([]);
@@ -15,7 +7,8 @@ export function useNotifications(userId) {
   const notifChannel   = useRef(null);
   const articleChannel = useRef(null);
 
-  // ── Load existing unread notifications when user logs in ───────
+  // ── 1. Load Notification "Stack" (History) ──────────────────────
+  // This ensures notifications stay visible even after being read
   useEffect(() => {
     if (!userId) {
       setNotifications([]);
@@ -23,29 +16,33 @@ export function useNotifications(userId) {
       return;
     }
 
-    getUnreadNotifications(userId).then(data => {
-      setNotifications(data ?? []);
-      setUnreadCount((data ?? []).length);
-    });
+    const fetchNotifs = async () => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('recipient_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20); // Keep the latest 20 in the stack
+
+      if (!error) {
+        setNotifications(data ?? []);
+        // Only count those where is_read is false
+        setUnreadCount(data?.filter(n => !n.is_read).length ?? 0);
+      }
+    };
+
+    fetchNotifs();
   }, [userId]);
 
-  // ── Set up Realtime subscriptions ──────────────────────────────
+  // ── 2. Realtime Subscriptions ──────────────────────────────────
   useEffect(() => {
     if (!userId) return;
 
-    // Clean up any stale channels before creating new ones
-    if (notifChannel.current) {
-      supabase.removeChannel(notifChannel.current);
-      notifChannel.current = null;
-    }
-    if (articleChannel.current) {
-      supabase.removeChannel(articleChannel.current);
-      articleChannel.current = null;
-    }
+    // Cleanup stale channels
+    if (notifChannel.current) supabase.removeChannel(notifChannel.current);
+    if (articleChannel.current) supabase.removeChannel(articleChannel.current);
 
-    // ── Channel 1: Personal notifications ─────────────────────────
-    // Fires when someone likes/comments on YOUR articles
-    // filter: `recipient_id=eq.${userId}` ensures you only get YOUR notifications
+    // Channel: Personal (Likes, Comments, Shares)[cite: 19]
     notifChannel.current = supabase
       .channel(`user-notifications:${userId}`)
       .on(
@@ -61,83 +58,54 @@ export function useNotifications(userId) {
           setUnreadCount(prev => prev + 1);
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[Realtime] Notifications channel connected');
-        }
-      });
+      .subscribe();
 
-    // ── Channel 2: Global new articles ────────────────────────────
-    // Fires when ANY user publishes a new article
-    // Users get a bell notification that new content is available
+    // Channel: Global (New Articles)[cite: 19]
     articleChannel.current = supabase
       .channel(`global-articles:${userId}`)
       .on(
         'postgres_changes',
-        {
-          event:  'INSERT',
-          schema: 'public',
-          table:  'articles',
-        },
+        { event: 'INSERT', schema: 'public', table: 'articles' },
         (payload) => {
           const newArticle = payload.new;
-
-          // Build a synthetic notification object that matches the
-          // shape Navbar expects: { id, type, payload, created_at }
           const syntheticNotif = {
-            id:         `new-article-${newArticle.id}`,
-            type:       'new_article',
-            is_read:    false,
+            id: `new-article-${newArticle.id}`,
+            type: 'new_article',
+            is_read: false,
             created_at: newArticle.created_at,
             payload: {
-              article_id:    newArticle.id,
+              article_id: newArticle.id,
               article_title: newArticle.title,
             },
           };
-
           setNotifications(prev => [syntheticNotif, ...prev]);
           setUnreadCount(prev => prev + 1);
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event:  'UPDATE',
-          schema: 'public',
-          table:  'articles',
-        },
-        (payload) => {
-          // Article was updated — you can show a notification here if needed
-          // Currently just logs for debugging
-          console.log('[Realtime] Article updated:', payload.new?.title);
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[Realtime] Articles channel connected');
-        }
-      });
+      .subscribe();
 
-    // Cleanup when userId changes or component unmounts
     return () => {
-      if (notifChannel.current) {
-        supabase.removeChannel(notifChannel.current);
-        notifChannel.current = null;
-      }
-      if (articleChannel.current) {
-        supabase.removeChannel(articleChannel.current);
-        articleChannel.current = null;
-      }
+      if (notifChannel.current) supabase.removeChannel(notifChannel.current);
+      if (articleChannel.current) supabase.removeChannel(articleChannel.current);
     };
   }, [userId]);
 
-  // ── Mark all as read ───────────────────────────────────────────
+  // ── 3. Mark Read (Update instead of Clear) ─────────────────────
   const markRead = async () => {
-    if (!userId) return;
-    await markAllNotificationsRead(userId);
-    // Clear both state values atomically
-    setNotifications([]);
-    setUnreadCount(0);
+    if (!userId || unreadCount === 0) return;
+
+    // Update database to set is_read to true[cite: 17]
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('recipient_id', userId)
+      .eq('is_read', false);
+
+    if (!error) {
+      // Keep notifications in the state but mark them as read locally[cite: 17]
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    }
   };
 
   return { notifications, unreadCount, markRead };
