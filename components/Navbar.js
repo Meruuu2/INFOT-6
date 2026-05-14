@@ -1,15 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { supabase } from '../lib/supabaseClient';
 
-// ✅ Fixed: component name is Navbar (PascalCase) — lowercase breaks Next.js
-export default function Navbar({ user, unreadCount = 0, notifications = [], onMarkRead }) {
+// ✅ Added memo for scalability: prevents Navbar from re-rendering unless props change
+const Navbar = memo(function Navbar({ user, unreadCount = 0, notifications = [], onMarkRead }) {
   const router = useRouter();
   const [showNotifs, setShowNotifs] = useState(false);
   const panelRef = useRef(null);
 
-  // ✅ From uploaded: close panel when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (panelRef.current && !panelRef.current.contains(e.target)) {
@@ -22,34 +20,14 @@ export default function Navbar({ user, unreadCount = 0, notifications = [], onMa
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showNotifs]);
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/auth');
-  };
-
   const toggleNotifs = () => {
     const opening = !showNotifs;
     setShowNotifs(opening);
-    // Mark as read when opening the panel
     if (opening && unreadCount > 0 && onMarkRead) {
       onMarkRead();
     }
   };
 
-  // ✅ From uploaded: added 'reply' type + cleaner switch statement
-  // ✅ Fixed: was referencing undefined 'someFunction' — now uses onMarkRead correctly
-  const getNotifText = (n) => {
-    const title = n.payload?.article_title || 'your article';
-    switch (n.type) {
-      case 'like':        return `❤️ Someone liked "${title}"`;
-      case 'comment':     return `💬 New comment on "${title}"`;
-      case 'reply':       return `↩️ Someone replied to your comment on "${title}"`;
-      case 'new_article': return `📰 New article published: "${title}"`;
-      default:            return `🔔 New notification`;
-    }
-  };
-
-  // ✅ From uploaded: dedicated click handler for notification routing
   const handleNotifClick = (n) => {
     setShowNotifs(false);
     const articleId = n.payload?.article_id;
@@ -58,153 +36,109 @@ export default function Navbar({ user, unreadCount = 0, notifications = [], onMa
     }
   };
 
+  // ✅ Helper to turn notification payload into readable text
+  const getNotifText = (n) => {
+    if (n.type === 'new_article') {
+      return (
+        <span>
+          🚀 <strong>New:</strong> {n.payload?.article_title || 'A new article was posted'}
+        </span>
+      );
+    }
+    if (n.type === 'like') return `❤️ Someone liked your article`;
+    if (n.type === 'comment') return `💬 Someone commented on your article`;
+    return n.message || 'New activity in ML Hub';
+  };
+
   const username = user?.email?.split('@')[0] ?? '';
 
   return (
     <nav style={styles.nav}>
-      {/* Brand */}
-      <Link href="/dashboard" style={styles.brand}>
-        🧠 ML Hub
-      </Link>
+      <Link href="/dashboard" style={styles.brand}>🧠 ML Hub</Link>
 
       <div style={styles.right}>
-        {user ? (
+        {user && (
           <>
-            {/* Write article link */}
-            <Link href="/articles/new" style={styles.writeLink}>
-              ✏️ Write
-            </Link>
+            <Link href="/articles/new" style={styles.writeLink}>✏️ Write</Link>
 
-            {/* Notification bell + dropdown */}
             <div style={{ position: 'relative' }} ref={panelRef}>
-              <button
-                onClick={toggleNotifs}
-                style={styles.bellBtn}
-                title="Notifications"
-                aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
-              >
+              <button onClick={toggleNotifs} style={styles.bellBtn}>
                 🔔
                 {unreadCount > 0 && (
-                  <span style={styles.badge}>
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
+                  <span style={styles.badge}>{unreadCount > 9 ? '9+' : unreadCount}</span>
                 )}
               </button>
 
-              {/* Dropdown panel */}
               {showNotifs && (
                 <div style={styles.notifPanel}>
-                  {/* Panel header */}
                   <div style={styles.notifHeader}>
-                    <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 14 }}>
-                      Notifications
-                    </span>
-                    {/* ✅ Fixed: was 'someFunction', now correctly calls onMarkRead */}
+                    <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 14 }}>Notifications</span>
                     {notifications.length > 0 && (
-                      <button onClick={onMarkRead} style={styles.markReadBtn}>
-                        ✓ Mark all read
-                      </button>
+                      <button onClick={onMarkRead} style={styles.markReadBtn}>✓ Mark all read</button>
                     )}
                   </div>
 
-                  {/* Notification list */}
-                  {notifications.length === 0 ? (
-                    <div style={styles.noNotifs}>
-                      <div style={{ fontSize: 24, marginBottom: 6 }}>🔕</div>
-                      No new notifications
-                    </div>
-                  ) : (
-                    notifications.slice(0, 8).map(n => (
-                      <div
-                        key={n.id}
-                        style={styles.notifItem}
-                        onClick={() => handleNotifClick(n)}
-                      >
-                        <div style={styles.notifText}>{getNotifText(n)}</div>
-                        <div style={styles.notifTime}>
-                          {new Date(n.created_at).toLocaleDateString('en-US', {
-                            month: 'short', day: 'numeric',
-                          })}
+                  <div style={styles.notifList}>
+                    {notifications.length === 0 ? (
+                      <div style={styles.noNotifs}>No new notifications</div>
+                    ) : (
+                      notifications.slice(0, 8).map(n => (
+                        <div key={n.id} style={styles.notifItem} onClick={() => handleNotifClick(n)}>
+                          <div style={styles.notifText}>
+                            {getNotifText(n)}
+                          </div>
+                          <div style={styles.notifTime}>
+                            {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
                         </div>
-                      </div>
-                    ))
-                  )}
-
-                  {/* ✅ From uploaded: overflow count footer */}
-                  {notifications.length > 8 && (
-                    <div style={styles.notifFooter}>
-                      +{notifications.length - 8} more notifications
-                    </div>
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* ✅ Profile pill — links to /profile page */}
-            <Link href="/profile" style={styles.userPill} title={user.email}>
-              👤 {username}
-            </Link>
-
-            {/* Logout */}
-            <button onClick={handleLogout} style={styles.logoutBtn}>
-              Logout
-            </button>
+            <Link href="/profile" style={styles.userPill}>👤 {username}</Link>
           </>
-        ) : (
-          <Link href="/auth" style={styles.loginLink}>
-            Sign In
-          </Link>
         )}
       </div>
     </nav>
   );
-}
+});
 
 const styles = {
   nav: {
+    height: '64px',
     backgroundColor: '#1e293b',
     borderBottom: '1px solid #334155',
-    padding: '0 1.5rem',
-    height: 56,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
+    padding: '0 1.5rem',
     position: 'sticky',
     top: 0,
-    zIndex: 200,
+    zIndex: 100,
   },
   brand: {
-    color: '#a5b4fc',
+    fontSize: '1.25rem',
     fontWeight: 700,
-    fontSize: '1.1rem',
+    color: '#f1f5f9',
     textDecoration: 'none',
-    letterSpacing: '0.01em',
   },
-  right: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-  },
+  right: { display: 'flex', alignItems: 'center', gap: '1.5rem' },
   writeLink: {
     color: '#94a3b8',
     textDecoration: 'none',
-    fontSize: 14,
+    fontSize: '0.9rem',
     fontWeight: 500,
-    padding: '6px 12px',
-    borderRadius: 7,
-    border: '1px solid #334155',
-    transition: 'border-color 0.2s',
   },
   bellBtn: {
     background: 'none',
     border: 'none',
+    fontSize: '1.2rem',
     cursor: 'pointer',
-    fontSize: 18,
     position: 'relative',
-    padding: '4px 8px',
-    display: 'flex',
-    alignItems: 'center',
-    borderRadius: 7,
+    padding: '4px',
   },
   badge: {
     position: 'absolute',
@@ -212,110 +146,58 @@ const styles = {
     right: -2,
     backgroundColor: '#ef4444',
     color: '#fff',
-    borderRadius: '50%',
-    minWidth: 18,
-    height: 18,
-    fontSize: 10,
+    fontSize: '10px',
     fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0 3px',
-    lineHeight: 1,
+    padding: '2px 5px',
+    borderRadius: '10px',
+    border: '2px solid #1e293b',
   },
   notifPanel: {
     position: 'absolute',
-    top: 'calc(100% + 8px)',
+    top: '40px',
     right: 0,
+    width: '300px',
     backgroundColor: '#1e293b',
     border: '1px solid #334155',
-    borderRadius: 10,
-    width: 320,
-    maxHeight: 420,
-    overflowY: 'auto',
-    boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-    zIndex: 999,
+    borderRadius: '12px',
+    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
+    overflow: 'hidden',
   },
   notifHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     padding: '12px 16px',
     borderBottom: '1px solid #334155',
-    position: 'sticky',
-    top: 0,
-    backgroundColor: '#1e293b',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
   },
   markReadBtn: {
     background: 'none',
     border: 'none',
     color: '#6366f1',
-    fontSize: 12,
+    fontSize: '11px',
     cursor: 'pointer',
-    fontWeight: 500,
+    fontWeight: 600,
   },
-  noNotifs: {
-    padding: '24px 16px',
-    color: '#64748b',
-    fontSize: 13,
-    textAlign: 'center',
-  },
+  notifList: { maxHeight: '400px', overflowY: 'auto' },
   notifItem: {
     padding: '12px 16px',
     borderBottom: '1px solid #0f172a',
     cursor: 'pointer',
-    transition: 'background 0.1s',
+    transition: 'background 0.2s',
   },
-  notifText: {
-    color: '#cbd5e1',
-    fontSize: 13,
-    lineHeight: 1.5,
-    wordBreak: 'break-word',
-  },
-  notifTime: {
-    color: '#475569',
-    fontSize: 11,
-    marginTop: 4,
-  },
-  notifFooter: {
-    padding: '10px 16px',
-    color: '#475569',
-    fontSize: 12,
-    textAlign: 'center',
-    borderTop: '1px solid #334155',
-  },
+  notifText: { color: '#cbd5e1', fontSize: '13px', lineHeight: 1.4 },
+  notifTime: { color: '#475569', fontSize: '11px', marginTop: '4px' },
+  noNotifs: { padding: '24px', color: '#64748b', textAlign: 'center', fontSize: '13px' },
   userPill: {
     backgroundColor: '#334155',
     color: '#a5b4fc',
     padding: '6px 14px',
-    borderRadius: 99,
-    fontSize: 13,
-    maxWidth: 160,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    textDecoration: 'none',
-    fontWeight: 500,
-    border: '1px solid #475569',
-    cursor: 'pointer',
-  },
-  logoutBtn: {
-    padding: '6px 14px',
-    borderRadius: 7,
-    border: '1px solid #334155',
-    backgroundColor: 'transparent',
-    color: '#f87171',
-    fontSize: 13,
-    cursor: 'pointer',
-    fontWeight: 500,
-  },
-  loginLink: {
-    color: '#fff',
-    backgroundColor: '#6366f1',
-    textDecoration: 'none',
-    padding: '7px 16px',
-    borderRadius: 7,
-    fontSize: 14,
+    borderRadius: '20px',
+    fontSize: '0.85rem',
     fontWeight: 600,
-  },
+    textDecoration: 'none',
+  }
 };
+
+export default Navbar;

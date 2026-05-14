@@ -18,5 +18,13 @@
   "devDependencies": {
     "eslint": "^9",
     "eslint-config-next": "16.2.3"
-  }
+  },
+  "description": "Copy each file from this download into your Next.js project exactly as shown below.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
